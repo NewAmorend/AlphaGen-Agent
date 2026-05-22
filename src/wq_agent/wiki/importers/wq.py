@@ -29,6 +29,26 @@ def _safe_filename(name: str) -> str:
     return name[:120] or "untitled"
 
 
+def _flatten(value) -> str:
+    """WQ API 经常把字段返回成 {id, name} dict。展平成可读字符串。"""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return str(value.get("id") or value.get("name") or "")
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_flatten(v) for v in value if v)
+    return str(value)
+
+
+def _safe_dict_value(value):
+    """Frontmatter 友好版：dict → id/name 字符串；其他类型原样保留。"""
+    if isinstance(value, dict):
+        return _flatten(value)
+    if isinstance(value, list):
+        return [_flatten(v) for v in value]
+    return value
+
+
 def _frontmatter(title: str, type_: str, tags: list[str], extra: dict | None = None) -> str:
     data: dict = {
         "title": title,
@@ -177,13 +197,13 @@ class WQDocImporter:
 
     @staticmethod
     def _render_dataset(ds: dict) -> str:
-        ds_id = ds.get("id", "")
-        name = ds.get("name") or ds_id
-        category = ds.get("category", "")
+        ds_id = _flatten(ds.get("id"))
+        name = _flatten(ds.get("name")) or ds_id
+        category = _flatten(ds.get("category"))
         delay = ds.get("delay", "")
-        region = ds.get("region", "")
-        universe = ds.get("universe", "")
-        description = ds.get("description", "")
+        region = _flatten(ds.get("region"))
+        universe = _flatten(ds.get("universe"))
+        description = _flatten(ds.get("description"))
         tags = ["dataset"]
         if category:
             tags.append(category.lower())
@@ -232,15 +252,13 @@ class WQDocImporter:
         universe: str | None = None,
         delay: int | None = None,
     ) -> str:
-        fid = f.get("id", "")
-        description = f.get("description", "")
-        ftype = f.get("type", "")
-        dataset = f.get("dataset")
-        if isinstance(dataset, dict):
-            dataset_id = dataset.get("id", "")
-        else:
-            dataset_id = str(dataset) if dataset else (dataset_meta or {}).get("id", "")
+        fid = _flatten(f.get("id"))
+        description = _flatten(f.get("description"))
+        ftype = _flatten(f.get("type"))
+        dataset_id = _flatten(f.get("dataset")) or _flatten((dataset_meta or {}).get("id"))
         coverage = f.get("coverage")
+        if isinstance(coverage, (dict, list)):
+            coverage = _flatten(coverage)
         tags = ["field"]
         if dataset_id:
             tags.append(dataset_id)

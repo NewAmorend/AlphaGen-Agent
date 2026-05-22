@@ -117,6 +117,47 @@ async def test_wq_importer_operators_renders_one_page_per_operator(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_wq_importer_handles_nested_dict_fields(tmp_path: Path):
+    """WQ /data-sets 与 /data-fields 经常把 category/region/universe/type 返回成 {id,name} dict。"""
+    client = AsyncMock()
+    client.get_operators = AsyncMock(return_value=[])
+    client.get_all_datasets = AsyncMock(return_value=[
+        {
+            "id": "fundamental6",
+            "name": "Fundamental 6",
+            "category": {"id": "fundamental", "name": "Fundamental"},
+            "region": {"id": "USA", "name": "USA"},
+            "universe": {"id": "TOP3000"},
+            "delay": 1,
+            "description": "Quarterly fundamentals",
+            "fieldCount": 123,
+        },
+    ])
+    client.get_all_data_fields_paged = AsyncMock(return_value=[
+        {
+            "id": "fnd6_test_field",
+            "description": {"id": "wrapped", "name": "wrapped desc"},
+            "type": {"id": "MATRIX"},
+            "dataset": {"id": "fundamental6"},
+            "coverage": [{"region": "USA", "value": 0.95}],
+        },
+    ])
+    importer = WQDocImporter(wiki_root=tmp_path, client=client)
+    stats = await importer.import_all(region="USA", universe="TOP3000", delay=1)
+    assert stats.datasets == 1
+    assert stats.fields == 1
+
+    ds_page = parse_page(tmp_path / "datasets" / "fundamental6.md")
+    assert "fundamental" in ds_page.tags
+    assert "usa" in ds_page.tags
+    assert "Fundamental 6" in ds_page.body
+
+    field_page = parse_page(tmp_path / "fields" / "fnd6_test_field.md")
+    assert "fundamental6" in field_page.tags
+    assert "matrix" in field_page.tags
+
+
+@pytest.mark.asyncio
 async def test_wq_importer_respects_user_edits(tmp_path: Path):
     client = AsyncMock()
     client.get_operators = AsyncMock(return_value=[
