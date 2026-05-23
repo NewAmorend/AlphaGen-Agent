@@ -185,7 +185,23 @@ wq-agent wiki import-paper --manual \
 
 ### 选向量后端
 
-`EMBEDDING_PROVIDER` 支持 `volcengine` / `zhipu` / `none`：
+`EMBEDDING_PROVIDER` 支持 `local` / `volcengine` / `zhipu` / `none`。
+
+**推荐：local**（离线、无 API 费用、无限流）：
+
+```bash
+pip install -e ".[local-embed]"   # 安装 fastembed（onnxruntime, ~50MB）
+
+# .env
+EMBEDDING_PROVIDER=local
+LOCAL_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5   # 95MB, 512 dim, 中文为主
+# 想多语言更强（中英 paper 混合）用 BAAI/bge-m3 (2.2GB, 1024 dim)
+EMBEDDING_DIM=0                                # 0 = 自动检测
+```
+
+首次 `wq-agent wiki index` 会从 HuggingFace 下载模型并缓存到 `~/.cache/fastembed/`，之后离线运行。
+
+**API 后端**（如需）：
 
 ```bash
 EMBEDDING_PROVIDER=volcengine
@@ -195,7 +211,7 @@ EMBEDDING_BASE_URL=https://ark.cn-beijing.volces.com/api/v3/embeddings
 EMBEDDING_DIM=2048
 ```
 
-`none` 时关闭向量通道，只用 grep + 图。
+`none` 关闭向量通道，只用 grep + 图。
 
 ## 开发
 

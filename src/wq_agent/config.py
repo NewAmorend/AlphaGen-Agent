@@ -41,11 +41,14 @@ class Settings(BaseSettings):
     WIKI_AUTO_RECORD: bool = True
     WIKI_SUMMARY_CHARS: int = 200
 
+    # EMBEDDING_PROVIDER: none | local | volcengine | zhipu
     EMBEDDING_PROVIDER: str = "none"
-    EMBEDDING_MODEL: str = "doubao-embedding-text-240715"
+    EMBEDDING_MODEL: str = "doubao-embedding-text-240715"   # for volcengine / zhipu
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3/embeddings"
-    EMBEDDING_DIM: int = 2048
+    EMBEDDING_DIM: int = 0   # 0 = 启动后自动检测（本地模型用）
+    # 本地模型（pip install fastembed 后启用）；候选见 fastembed.TextEmbedding.list_supported_models()
+    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
