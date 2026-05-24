@@ -18,6 +18,22 @@ def test_extract_field_candidates_skips_operators_and_keywords():
     assert "subindustry" not in fields
 
 
+def test_extract_field_candidates_skips_operator_kwargs():
+    """Regression: 之前 quantile(_, driver=gaussian, sigma=1.0)、winsorize(_, std=4)
+    会把 driver/gaussian/sigma/std 误识别为字段，污染 blacklist。"""
+    expr = "quantile(rank(fnd6_eps), driver=gaussian, sigma=1.0)"
+    fields = extract_field_candidates(expr)
+    assert "fnd6_eps" in fields
+    assert "driver" not in fields
+    assert "gaussian" not in fields
+    assert "sigma" not in fields
+
+    expr2 = "winsorize(rank(close), std=4)"
+    fields2 = extract_field_candidates(expr2)
+    assert "close" in fields2
+    assert "std" not in fields2
+
+
 def test_extract_field_candidates_multi_field():
     expr = "add(rank(divide(fnd6_cashflow_op, fnd6_assets)), rank(ts_delta(close, 60)))"
     fields = extract_field_candidates(expr)

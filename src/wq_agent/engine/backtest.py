@@ -40,6 +40,15 @@ _NOT_FIELD = frozenset({
     "true", "false", "in", "universe_size",
     # 常见分组字段（虽然是字段但属于 universe 必备，不该 blacklist）
     "subindustry", "industry", "sector", "country", "currency", "exchange",
+    # 算子的关键字参数名 / 字面值（不是字段！）
+    "driver", "sigma", "std", "range", "buckets", "lookback", "ignore", "dense",
+    "sensitivity", "force", "constant", "lambda_min", "lambda_max", "target_tvr",
+    "use_std", "usestd", "limit", "rate", "longscale", "shortscale", "mode",
+    "nlength", "threshold", "nth", "ignorenan", "percentage", "precise",
+    "filter", "value", "decay", "hump",
+    "gaussian", "uniform", "nan", "algo1", "algo2",
+    # 单字母 / 极短变量（绝大多数是数学公式里的占位）
+    "x", "y", "z", "d", "k", "n",
 })
 
 _IDENT_RE = re.compile(r"\b[a-z][a-z0-9_]{2,}\b")
