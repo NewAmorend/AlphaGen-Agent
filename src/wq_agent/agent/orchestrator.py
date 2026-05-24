@@ -116,8 +116,14 @@ class Orchestrator:
         operators = await self.wq.get_operators()
         console.print(f"  Loaded [green]{len(data_fields)}[/green] fields, [green]{len(operators)}[/green] operators")
 
+        previous = await self.db.list_recent_backtested_alphas(limit=20)
+        if previous:
+            console.print(f"  Feeding [yellow]{len(previous)}[/yellow] prior backtested alphas back as feedback")
+
         console.print(f"\n[bold cyan]Generating {count} alphas using {strategy.value} strategy...[/bold cyan]")
-        expressions = await generator.generate(data_fields, operators, count=count)
+        expressions = await generator.generate(
+            data_fields, operators, previous_results=previous, count=count,
+        )
         console.print(f"  Generated [green]{len(expressions)}[/green] valid expressions")
 
         records = []

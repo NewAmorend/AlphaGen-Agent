@@ -229,6 +229,49 @@ class Database:
             created_at=datetime.fromisoformat(r["created_at"]),
         )
 
+    async def list_recent_backtested_alphas(self, limit: int = 20) -> list[dict[str, Any]]:
+        """最近回测过的 alpha + 关键指标，供 generator 当 previous_results 喂回 LLM。"""
+        assert self._conn is not None
+        cursor = await self._conn.execute(
+            """SELECT a.id AS alpha_id, a.expression, a.strategy, a.created_at,
+                      b.fitness, b.sharpe, b.turnover, b.returns, b.grade, b.checks
+               FROM alphas a
+               JOIN backtest_results b ON a.id = b.alpha_id
+               WHERE b.fitness IS NOT NULL
+               ORDER BY b.created_at DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            checks_raw = r["checks"]
+            checks: list[dict] = []
+            if checks_raw:
+                try:
+                    checks = json.loads(checks_raw)
+                except (json.JSONDecodeError, TypeError):
+                    checks = []
+            failed = [
+                str(c.get("name", ""))
+                for c in checks
+                if isinstance(c, dict) and str(c.get("result", "")).upper() == "FAIL"
+            ]
+            out.append({
+                "alpha_id": r["alpha_id"],
+                "alpha": r["expression"],
+                "strategy": r["strategy"],
+                "performance": {
+                    "fitness": r["fitness"],
+                    "sharpe": r["sharpe"],
+                    "turnover": r["turnover"],
+                    "returns": r["returns"],
+                    "grade": r["grade"],
+                },
+                "failed_checks": failed,
+            })
+        return out
+
     async def list_high_quality_alphas(self, min_fitness: float = 1.0) -> list[dict[str, Any]]:
         assert self._conn is not None
         cursor = await self._conn.execute(

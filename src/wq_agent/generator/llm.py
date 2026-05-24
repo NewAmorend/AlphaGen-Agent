@@ -241,19 +241,7 @@ class LLMAlphaGenerator(BaseAlphaGenerator):
             sampled = random.sample(ops, min(len(ops), max(1, len(ops) // 2)))
             operators_str.extend(sampled)
 
-        previous_section = ""
-        if previous_results:
-            previous_section = "\n## 上一次生成的结果\n"
-            previous_section += "以下是上一次生成的Alpha表达式及其表现：\n"
-            for i, r in enumerate(previous_results, 1):
-                if "alpha" in r and "performance" in r:
-                    expr = r["alpha"]
-                    fitness = r["performance"].get("fitness", 0)
-                    previous_section += f"{i}. 表达式: {expr}, 表现值: {fitness:.6f}\n"
-            previous_section += "\n## 因子优化要求\n"
-            previous_section += "1. 对于绝对值表现很差的因子，请直接舍弃\n"
-            previous_section += "2. 绝对值表现很好fitness接近0.5，或者大于0.5 但是负数的因子，请在前面增加负号\n"
-            previous_section += "3. 基于以上信息，生成新的改进后的Alpha表达式\n"
+        previous_section = self._build_previous_results_section(previous_results)
 
         knowledge_section = await self._build_knowledge_section(data_fields, operators)
 
@@ -270,6 +258,101 @@ class LLMAlphaGenerator(BaseAlphaGenerator):
         cleaned = self._clean_expressions(raw_expressions)
         logger.info(f"LLM generated {len(cleaned)} valid expressions from {len(raw_expressions)} raw")
         return cleaned
+
+    @staticmethod
+    def _build_previous_results_section(previous_results: list[dict[str, Any]] | None) -> str:
+        """根据 db 返回的最近回测结果，构造可读 + 可指导的反馈段。
+
+        给 LLM 看的不只是 fitness 数字，而是分级 + 失败 check 名 + 具体改进策略。
+        """
+        if not previous_results:
+            return ""
+
+        lines = ["", "## 历史回测反馈（最近 {} 个）".format(len(previous_results)), ""]
+        lines.append("| # | 表达式 | fitness | sharpe | turnover | 评级 | 失败检查 |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+
+        # 失败模式聚类用
+        sharpe_low_count = 0
+        fitness_low_count = 0
+        turnover_high_count = 0
+        sign_flip_candidates: list[str] = []   # fitness 接近 0 且为负 → 加 reverse
+        near_miss: list[str] = []              # MEDIUM = 仅一项差 → 微调有戏
+
+        for i, r in enumerate(previous_results, 1):
+            expr = r.get("alpha", "")
+            perf = r.get("performance") or {}
+            fit = perf.get("fitness")
+            shp = perf.get("sharpe")
+            tov = perf.get("turnover")
+            grade = perf.get("grade") or "?"
+            failed = r.get("failed_checks") or []
+            failed_str = ", ".join(failed[:3]) if failed else "—"
+
+            def _fmt(v):
+                if v is None:
+                    return "—"
+                try:
+                    return f"{float(v):.3f}"
+                except (TypeError, ValueError):
+                    return str(v)
+
+            lines.append(
+                f"| {i} | `{expr[:60]}` | {_fmt(fit)} | {_fmt(shp)} | {_fmt(tov)} | "
+                f"{grade} | {failed_str} |"
+            )
+
+            if isinstance(fit, (int, float)):
+                if fit < 0 and abs(fit) >= 0.5:
+                    sign_flip_candidates.append(expr)
+                if grade == "medium":
+                    near_miss.append(expr)
+            for name in failed:
+                up = name.upper()
+                if up == "LOW_SHARPE":
+                    sharpe_low_count += 1
+                elif up == "LOW_FITNESS":
+                    fitness_low_count += 1
+                elif up == "HIGH_TURNOVER":
+                    turnover_high_count += 1
+
+        lines += ["", "## 基于以上反馈的迭代要求（严格遵守）", ""]
+        lines.append(
+            "1. **不要重复**上表里出现过的表达式 —— 哪怕窗口数稍微改一下也行，"
+            "禁止 verbatim 复制。"
+        )
+        if sign_flip_candidates:
+            lines.append(
+                f"2. 上表里有 {len(sign_flip_candidates)} 个 fitness 显著为负的因子 —— "
+                "这种**信号方向反了**，对它们外层加 `reverse()` 或 `-1*` 通常能直接翻成正 fitness。"
+            )
+        if near_miss:
+            lines.append(
+                f"3. 上表里有 {len(near_miss)} 个 MEDIUM 评级的因子 —— 它们**只差一项硬指标**。"
+                "对这些表达式做**微调变体**（换窗口 5↔20↔60↔252、加 `group_neutralize(_, subindustry)`、"
+                "外层套 `ts_decay_linear(_, 10)`），通常能从 MEDIUM 推到 HIGH。"
+            )
+        if fitness_low_count >= 3:
+            lines.append(
+                f"4. 有 {fitness_low_count} 个 fitness 偏低 —— 单一弱信号撑不起 alpha，"
+                "请尝试**复合**：`add(rank(信号A), rank(信号B))` 两个弱相关信号叠加。"
+            )
+        if sharpe_low_count >= 3:
+            lines.append(
+                f"5. 有 {sharpe_low_count} 个 sharpe 偏低 —— 信号噪声比差，"
+                "尝试 `winsorize(_, std=4)` 或 `ts_decay_linear(_, 20)` 平滑。"
+            )
+        if turnover_high_count >= 3:
+            lines.append(
+                f"6. 有 {turnover_high_count} 个 turnover 超 70% —— 换手太快，"
+                "外层套 `ts_decay_linear(_, 60)` 或 `hump(_, hump=0.05)` 控换手。"
+            )
+        lines.append(
+            "7. 从未尝试过的因子族（看 wiki 的 [[concepts/quality-factors]]、"
+            "[[concepts/liquidity-microstructure]]、[[concepts/analyst-revisions]] 等）也要纳入新一批。"
+        )
+        lines.append("")
+        return "\n".join(lines)
 
     async def _build_knowledge_section(
         self,
