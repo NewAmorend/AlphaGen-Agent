@@ -548,7 +548,10 @@ class LLMAlphaGenerator(BaseAlphaGenerator):
                 depth = max(depth - 1, 0)
         return max_depth
 
-    def _clean_expressions(self, ideas: list[str]) -> list[str]:
+    def _clean_expressions(self, ideas: list[str], max_depth: int | None = None) -> list[str]:
+        # max_depth=None 时用类常量 MAX_NESTING_DEPTH（默认 4）；refine 可以传 6 给已经
+        # 复杂的 base 留出叠 wrapper 的余地。
+        depth_cap = max_depth if max_depth is not None else self.MAX_NESTING_DEPTH
         cleaned: list[str] = []
         rejected_complexity = 0
         valid_funcs = {
@@ -612,7 +615,7 @@ class LLMAlphaGenerator(BaseAlphaGenerator):
             if "(" not in fixed or ")" not in fixed:
                 reject_counts["missing_parens"] += 1
                 continue
-            if self._nesting_depth(fixed) > self.MAX_NESTING_DEPTH:
+            if self._nesting_depth(fixed) > depth_cap:
                 reject_counts["nesting_too_deep"] += 1
                 rejected_complexity += 1
                 continue
@@ -622,7 +625,8 @@ class LLMAlphaGenerator(BaseAlphaGenerator):
         if total_rejected:
             breakdown = ", ".join(f"{k}={v}" for k, v in reject_counts.items() if v)
             logger.info(
-                f"Validation: kept {len(cleaned)}/{len(ideas)}, rejected {total_rejected} ({breakdown})"
+                f"Validation: kept {len(cleaned)}/{len(ideas)}, rejected {total_rejected} "
+                f"({breakdown}; depth_cap={depth_cap})"
             )
         return cleaned
 

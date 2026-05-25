@@ -228,7 +228,9 @@ class RefineAlphaGenerator:
         # 温度从 0.4 提到 0.55——之前变体高度雷同，需要更大多样性
         content = await self.llm.generate(prompt, temperature=0.55)
         raw = self._base_gen._parse_response(content)
-        cleaned = self._base_gen._clean_expressions(raw)
+        # refine 用 6 层深度上限（vs generate 的 4 层）——base 已经 3-4 层，再加 wrapper
+        # 必然超 4 层。Run v4 里 5/15 变体因此被丢，正是最激进的那批。
+        cleaned = self._base_gen._clean_expressions(raw, max_depth=6)
 
         # 去掉跟 base 完全相同的（regex 友好的简单 dedup）
         base_norm = re.sub(r"\s+", "", expression)
