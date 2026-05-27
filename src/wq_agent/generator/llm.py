@@ -447,18 +447,22 @@ class LLMAlphaGenerator(BaseAlphaGenerator):
 
     @staticmethod
     def _build_submitted_skeletons_section(skeletons: set[str] | None) -> str:
-        """已 SUBMITTED 因子的骨架黑名单 —— LLM 不要生成同款（即使换字段或调窗口）。
+        """因子骨架黑名单（结构级），来源两类：
 
-        和 forbidden_fields 段不同：那个是字段级别黑名单（pe_ratio 这种），这个是
-        结构级别黑名单。同骨架意味着只是换了字段/数字，对 WQ 来说是"同一个因子"。
+        (1) 已在 WQ Brain 正式提交（status=SUBMITTED）
+        (2) WQ 已判定 self_correlation FAIL（与现有 alpha 高度相关，提交也会被拒）
+
+        和 forbidden_fields 段不同：那个是字段级别（pe_ratio 这种），这个是结构级别。
+        同骨架意味着只是换了字段/数字，对 WQ 来说算"同一个因子"。
         """
         if not skeletons:
             return ""
         # 不全列（可能 500+），只显示一个汇总 + 最具代表性的样本
         sample = list(skeletons)[:8]
-        lines = ["", f"## 🚫 已提交的结构骨架（共 {len(skeletons)} 个）—— 不要再生成同款", ""]
-        lines.append("以下骨架已经在 WQ Brain 正式提交过，**即使你换字段或换窗口数字也算同款**，")
-        lines.append("会被系统过滤掉浪费生成名额。请创造**结构上不同**的因子。")
+        lines = ["", f"## 🚫 已存在/已被拒的结构骨架（共 {len(skeletons)} 个）—— 不要再生成同款", ""]
+        lines.append("以下骨架已经在 WQ Brain 提交过、或被 self_correlation 检查判定为重复，")
+        lines.append("**即使你换字段或换窗口数字也算同款**，会被系统过滤掉浪费生成名额。")
+        lines.append("请创造**结构上不同**的因子（换 wrapper、换嵌套层级、换主算子）。")
         lines.append("")
         lines.append("样例骨架（FIELD 表示任意字段，N 表示任意数字）：")
         for skel in sample:

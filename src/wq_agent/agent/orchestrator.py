@@ -146,7 +146,7 @@ class Orchestrator:
                 f"(best fitness {best_fit:.2f})"
             )
 
-        submitted_skeletons = await self.db.get_submitted_skeletons()
+        submitted_skeletons = await self.db.get_blacklisted_skeletons()  # submitted + self-corr FAIL
         if submitted_skeletons:
             console.print(
                 f"  Excluding [yellow]{len(submitted_skeletons)}[/yellow] submitted-alpha skeletons from generation"
@@ -252,7 +252,7 @@ class Orchestrator:
 
         # 把历史 top-fitness 也喂给 refine——base 可能就是 top-1，但其它 top 给 LLM 更多模式参考
         exemplars = await self.db.list_top_fitness_alphas(limit=5, min_fitness=0.0)
-        submitted_skeletons = await self.db.get_submitted_skeletons()
+        submitted_skeletons = await self.db.get_blacklisted_skeletons()  # submitted + self-corr FAIL
 
         console.print(f"[cyan]Generating {count} refine variants...[/cyan]")
         variants = await refiner.refine(

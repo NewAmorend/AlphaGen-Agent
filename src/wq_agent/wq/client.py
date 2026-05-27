@@ -376,6 +376,21 @@ class WQClient:
             return resp.json().get("results", [])
         return []
 
+    async def get_alpha_check(self, wq_alpha_id: str) -> list[dict] | None:
+        """拉单个 alpha 的最新 IS check 状态（特别是 self_correlation——WQ 异步算的，
+        /users/self/alphas list endpoint 返回的常常还是 PENDING，必须打 /alphas/{id}/check
+        才能拿到 FAIL/PASS 终态）。
+        """
+        resp = await self._request("get", f"/alphas/{wq_alpha_id}/check")
+        if resp.status_code != 200:
+            return None
+        try:
+            data = resp.json()
+        except Exception:
+            return None
+        is_data = data.get("is") or {}
+        return is_data.get("checks")
+
 
 def _DEFAULT_OPERATORS() -> list[WQOperator]:
     defaults = [

@@ -417,39 +417,63 @@ def sync_submitted(
             matched = 0
             inserted = 0
             already = 0
-            for row in truly_submitted:
+            checks_refreshed = 0  # 包括未 submit 的——self-corr 是异步计算的，本地数据常常过期
+            for row in remote:
                 wq_id = row.get("id")
                 regular = row.get("regular") or {}
                 expression = regular.get("code") if isinstance(regular, dict) else None
                 if not (wq_id and expression):
                     continue
+                is_data = row.get("is") or {}
+                fresh_checks = is_data.get("checks")
                 date_submitted = None
-                date_str = row.get("dateSubmitted")
-                if date_str:
+                if row.get("dateSubmitted"):
                     try:
-                        # WQ format: "2026-05-26T02:12:27-04:00"
-                        date_submitted = datetime.fromisoformat(date_str)
+                        date_submitted = datetime.fromisoformat(row["dateSubmitted"])
                     except (ValueError, TypeError):
                         pass
                 # 优先 wq_alpha_id 匹配，没有就 expression 匹配
-                local_id = await db.find_alpha_by_wq_id(wq_id)
-                if local_id is None:
-                    local_id = await db.find_alpha_by_expression(expression)
-                if local_id is not None:
-                    alpha = await db.get_alpha(local_id)
-                    if alpha and alpha.status == AlphaStatus.SUBMITTED:
-                        already += 1
-                    else:
-                        await db.mark_alpha_submitted(local_id, date_submitted)
-                        matched += 1
-                else:
-                    # 远端有但本地没有 → 灌进来当 SUBMITTED 外部 alpha
+                local_ids = await db.find_alphas_by_wq_id(wq_id)
+                if not local_ids:
+                    by_expr = await db.find_alpha_by_expression(expression)
+                    if by_expr is not None:
+                        local_ids = [by_expr]
+
+                if local_ids:
+                    # 选择数据源：list endpoint 的 SELF_CORRELATION 经常是 PENDING（异步算），
+                    # 只在 list 已是 PENDING 时才打 /alphas/{id}/check 拉终态——省 API 配额
+                    list_sc_pending = any(
+                        str(c.get("name", "")).upper() == "SELF_CORRELATION"
+                        and str(c.get("result", "")).upper() == "PENDING"
+                        for c in (fresh_checks or []) if isinstance(c, dict)
+                    )
+                    checks_to_write = fresh_checks
+                    if list_sc_pending:
+                        detail_checks = await client.get_alpha_check(wq_id)
+                        if detail_checks:
+                            checks_to_write = detail_checks
+                    # 同 wq_id 的所有本地 alpha（refine verbatim 重复时常有）都要更新
+                    if checks_to_write:
+                        for lid in local_ids:
+                            await db.update_backtest_checks(lid, checks_to_write)
+                        checks_refreshed += len(local_ids)
+                    # 再处理 submission 状态——所有匹配的 local id 都标
+                    if date_submitted:
+                        for lid in local_ids:
+                            alpha = await db.get_alpha(lid)
+                            if alpha and alpha.status == AlphaStatus.SUBMITTED:
+                                already += 1
+                            else:
+                                await db.mark_alpha_submitted(lid, date_submitted)
+                                matched += 1
+                elif date_submitted:
+                    # 远端真提交了但本地无 → 灌进来当 SUBMITTED 外部 alpha
                     settings_dict = row.get("settings") or {}
                     await db.upsert_external_submitted_alpha(
                         wq_alpha_id=wq_id,
                         expression=expression,
                         date_submitted=date_submitted,
-                        is_metrics=row.get("is"),
+                        is_metrics=is_data,
                         region=settings_dict.get("region", "USA"),
                         universe=settings_dict.get("universe", "TOP3000"),
                         delay=settings_dict.get("delay", 1),
@@ -457,12 +481,18 @@ def sync_submitted(
                     )
                     inserted += 1
             console.print(f"[green]✓ sync done[/green]: "
-                          f"[cyan]{matched}[/cyan] local matched, "
+                          f"[cyan]{matched}[/cyan] newly marked submitted, "
                           f"[cyan]{inserted}[/cyan] external inserted, "
-                          f"[dim]{already}[/dim] already-submitted")
-            skeletons = await db.get_submitted_skeletons()
-            console.print(f"  Total submitted-skeletons now: [yellow]{len(skeletons)}[/yellow] "
-                          f"(LLM/refine prompt will exclude these from generation)")
+                          f"[dim]{already}[/dim] already-submitted, "
+                          f"[yellow]{checks_refreshed}[/yellow] checks refreshed")
+            blacklist = await db.get_blacklisted_skeletons()
+            submitted = await db.get_submitted_skeletons()
+            console.print(
+                f"  Skeleton blacklist now: [yellow]{len(blacklist)}[/yellow] total "
+                f"([cyan]{len(submitted)}[/cyan] submitted + "
+                f"[red]{len(blacklist) - len(submitted)}[/red] self-corr FAIL) "
+                "→ LLM/refine prompt will exclude these"
+            )
         finally:
             await client.close()
             await db.close()

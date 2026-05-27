@@ -585,9 +585,9 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_submitted_skeletons(self) -> set[str]:
-        """用于 LLM/refine prompt 黑名单——已提交的因子骨架不要再生成同款。
+        """已 SUBMITTED 因子的骨架集合（不含 self-corr FAIL）。保留接口主要给 stats 用。
 
-        使用完整 expression_skeleton（field 替换为 FIELD、数字替换为 N）作为相同性判据。
+        生成 prompt 黑名单请用 get_blacklisted_skeletons() —— 涵盖更全。
         """
         assert self._conn is not None
         cursor = await self._conn.execute(
@@ -599,14 +599,83 @@ class Database:
         skeletons.discard("")
         return skeletons
 
+    async def get_blacklisted_skeletons(self) -> set[str]:
+        """LLM/refine prompt 应避开的骨架集合，两类合并：
+
+        (1) **已 SUBMITTED** —— 用户在 WQ 网站正式提交过的，再生成也只是重复
+        (2) **SELF_CORRELATION = FAIL** —— WQ 已经判定与已有 alpha 高度相关，
+            即使没人提交，再造同款也会被 WQ 拒收，浪费回测
+
+        前者来自 status 列，后者扫 backtest_results.checks 里的 SELF_CORRELATION 项。
+        """
+        assert self._conn is not None
+        skeletons: set[str] = set()
+
+        # (1) SUBMITTED
+        cursor = await self._conn.execute(
+            "SELECT expression FROM alphas WHERE status = ?",
+            (AlphaStatus.SUBMITTED.value,),
+        )
+        for r in await cursor.fetchall():
+            if r["expression"]:
+                s = expression_skeleton(r["expression"])
+                if s:
+                    skeletons.add(s)
+
+        # (2) self_correlation FAIL
+        cursor = await self._conn.execute(
+            """SELECT a.expression, b.checks
+               FROM alphas a JOIN backtest_results b ON a.id = b.alpha_id
+               WHERE b.checks IS NOT NULL"""
+        )
+        for r in await cursor.fetchall():
+            checks_raw = r["checks"]
+            try:
+                checks = json.loads(checks_raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            sc_fail = any(
+                str(c.get("name", "")).upper() == "SELF_CORRELATION"
+                and str(c.get("result", "")).upper() == "FAIL"
+                for c in checks if isinstance(c, dict)
+            )
+            if sc_fail and r["expression"]:
+                s = expression_skeleton(r["expression"])
+                if s:
+                    skeletons.add(s)
+
+        return skeletons
+
+    async def update_backtest_checks(self, alpha_id: int, checks: list[dict]) -> None:
+        """覆盖本地 backtest_results.checks——WQ 的 self_correlation 是异步算的，
+        sync 时拉到最新的 checks 数据写回，让 self-corr FAIL 等状态及时反映到本地。
+        """
+        assert self._conn is not None
+        checks_json = json.dumps(checks, ensure_ascii=False)
+        await self._conn.execute(
+            "UPDATE backtest_results SET checks = ? WHERE alpha_id = ?",
+            (checks_json, alpha_id),
+        )
+        await self._conn.commit()
+
     async def find_alpha_by_wq_id(self, wq_alpha_id: str) -> int | None:
+        """返回 wq_id 对应的第一个 local alpha id（向后兼容；多匹配请用 find_alphas_by_wq_id）。"""
+        ids = await self.find_alphas_by_wq_id(wq_alpha_id)
+        return ids[0] if ids else None
+
+    async def find_alphas_by_wq_id(self, wq_alpha_id: str) -> list[int]:
+        """返回所有 wq_id 对应的 local alpha ids。
+
+        refine 经常 verbatim 重复（不同 local id 但同 wq_alpha_id），sync 需要全部更新
+        否则 self_correlation 状态只反映到其中一个，其它仍 PENDING。
+        """
         assert self._conn is not None
         cursor = await self._conn.execute(
-            "SELECT alpha_id FROM backtest_results WHERE wq_alpha_id = ? LIMIT 1",
+            "SELECT alpha_id FROM backtest_results WHERE wq_alpha_id = ?",
             (wq_alpha_id,),
         )
-        r = await cursor.fetchone()
-        return r["alpha_id"] if r else None
+        rows = await cursor.fetchall()
+        return [r["alpha_id"] for r in rows]
 
     async def find_alpha_by_expression(self, expression: str) -> int | None:
         """fallback 匹配——如果 wq_alpha_id 对不上（可能 simulation 时没存），
