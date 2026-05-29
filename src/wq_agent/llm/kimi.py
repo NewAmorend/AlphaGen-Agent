@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-
 import httpx
 from loguru import logger
 
-from .base import BaseLLMProvider
+from .base import BaseLLMProvider, chat_completion_with_retry
 
 
 class KimiProvider(BaseLLMProvider):
@@ -44,13 +43,9 @@ class KimiProvider(BaseLLMProvider):
             "stream": False,
         }
         logger.debug(f"Kimi request: model={model}, prompt_len={len(prompt)}")
-        resp = await self._client.post(self.base_url, json=payload)
-        if resp.status_code != 200:
-            raise Exception(f"Kimi API error ({resp.status_code}): {resp.text[:500]}")
-        data = resp.json()
-        content = data["choices"][0]["message"]["content"]
-        logger.debug(f"Kimi response: {len(content)} chars")
-        return content
+        return await chat_completion_with_retry(
+            self._client, self.base_url, payload, provider="Kimi"
+        )
 
     async def close(self) -> None:
         await self._client.aclose()
