@@ -165,14 +165,18 @@ class Orchestrator:
 
         # 库里 wrapper 家族分布——喂给生成器提示"避开已饱和结构"，对抗单一栽培
         family_distribution = await self.db.get_skeleton_distribution(limit=10)
-        over = [
-            f for f in family_distribution.get("top_outer2", [])
-            if f.get("count", 0) >= max(5, int(family_distribution.get("total_backtested", 0) * 0.2))
-        ]
-        if over and family_distribution.get("total_backtested", 0) >= 10:
+        from ..generator.llm import overrepresented_families
+        _total = family_distribution.get("total_backtested", 0)
+        over = overrepresented_families(
+            family_distribution.get("top_outer1", []),
+            _total,
+            family_distribution.get("unique_outer1", 0),
+        )
+        if over and _total >= 10:
+            tops = ", ".join(f"{f['signature']}×{f['count']}" for f in over[:3])
             console.print(
-                f"  Steering away from [yellow]{len(over)}[/yellow] over-represented wrapper "
-                f"families (top: {over[0]['signature']}... ×{over[0]['count']})"
+                f"  Steering away from [yellow]{len(over)}[/yellow] over-represented outer ops "
+                f"(top: {tops})"
             )
 
         console.print(f"\n[bold cyan]Generating {count} alphas using {strategy.value} strategy...[/bold cyan]")

@@ -296,6 +296,36 @@ def build_proven_wrappers_section(rng: "random.Random | None" = None) -> str:
 PROVEN_WRAPPERS_SECTION = build_proven_wrappers_section(random.Random(0))
 
 
+def overrepresented_families(
+    families: list[dict[str, Any]] | None,
+    total: int,
+    num_families: int,
+    *,
+    min_count: int = 5,
+    mean_mult: float = 2.0,
+    dominant_share: float = 0.25,
+) -> list[dict[str, Any]]:
+    """从家族分布里挑出"过量"的家族——自适应库大小，不写死百分比。
+
+    判定（满足任一）：
+      - count ≥ max(min_count, mean_mult × 平均家族大小)  ← 比同侪显著多
+      - count/total ≥ dominant_share                       ← 单家族绝对霸屏
+
+    用均值倍数而非固定 20%×total：大库里没有单一家族能占 20%，但若某壳子是平均
+    家族的好几倍，它就是单一栽培信号。两条 OR 兼顾大库与小/低多样性库。
+    """
+    if not families or total <= 0 or num_families <= 0:
+        return []
+    mean = total / num_families
+    floor = max(min_count, mean * mean_mult)
+    out: list[dict[str, Any]] = []
+    for f in families:
+        c = f.get("count", 0)
+        if c >= floor or (c / total) >= dominant_share:
+            out.append(f)
+    return out
+
+
 class LLMAlphaGenerator(BaseAlphaGenerator):
     def __init__(
         self,
@@ -556,29 +586,42 @@ class LLMAlphaGenerator(BaseAlphaGenerator):
         if not distribution:
             return ""
         total = distribution.get("total_backtested", 0)
-        families = distribution.get("top_outer2") or []
-        if total < 10 or not families:
+        if total < 10:
             return ""
-        # 阈值：占比 ≥ 20% 或 count ≥ 5 视为"饱和"
-        floor = max(5, int(total * 0.2))
-        over = [f for f in families if f.get("count", 0) >= floor]
-        if not over:
+        # 优先在 outer-1（最外层算子）粒度上判定——抓"整个 decay 系霸屏"这类宏观单一化；
+        # 缺 outer-1 数据时退回 outer-2。
+        fams1 = distribution.get("top_outer1") or []
+        over1 = overrepresented_families(fams1, total, distribution.get("unique_outer1", len(fams1)))
+        fams2 = distribution.get("top_outer2") or []
+        over2 = overrepresented_families(fams2, total, distribution.get("unique_outer2", len(fams2)))
+        if not over1 and not over2:
             return ""
+
         lines = [
             "",
             f"## ⚖️ 结构饱和提示（库里已有 {total} 个回测因子）",
             "",
-            "以下 wrapper 家族（最外两层算子）在库里**已经很多**，这批请尽量用**别的结构**，",
-            "避免继续往同一个外壳里塞信号（同壳子换字段对 WQ 多半算高相关、提交会被拒）：",
+            "以下 wrapper 结构在库里**已经很多**，这批请尽量用**别的结构**，避免继续往同一个",
+            "外壳里塞信号（同壳子换字段对 WQ 多半算高相关、提交会被拒）：",
             "",
         ]
-        for f in over:
+
+        def _fmt(f: dict[str, Any], depth_label: str) -> str:
             sig = f.get("signature", "?")
             cnt = f.get("count", 0)
+            share = cnt / total if total else 0
             avg = f.get("avg_fitness")
             avg_str = f"，平均 fitness {avg:.2f}" if isinstance(avg, (int, float)) else ""
-            lines.append(f"- `{sig}...`（已 {cnt} 个{avg_str}）")
-        lines.append("")
+            return f"- {depth_label} `{sig}...`（已 {cnt} 个，占 {share:.0%}{avg_str}）"
+
+        if over1:
+            lines.append("**最外层算子过量**（最该换的）：")
+            lines += [_fmt(f, "最外层=") for f in over1]
+            lines.append("")
+        if over2:
+            lines.append("**外壳子家族过量**：")
+            lines += [_fmt(f, "") for f in over2]
+            lines.append("")
         lines.append("👉 优先尝试上面「结构变体」里 decay+rank 之外的外壳，或全新的算子组合。")
         lines.append("")
         return "\n".join(lines)

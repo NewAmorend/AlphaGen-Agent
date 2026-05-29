@@ -689,38 +689,49 @@ class Database:
         )
         rows = await cursor.fetchall()
 
-        outer2_counts: dict[str, int] = {}
-        outer2_fits: dict[str, list[float]] = {}
+        # 同时按 outer-1（最外层单算子）和 outer-2（最外两层算子链）聚合。
+        # outer-1 抓"整个 decay 系霸屏"这类宏观单一化，outer-2 抓更细的子家族。
+        counts: dict[int, dict[str, int]] = {1: {}, 2: {}}
+        fits: dict[int, dict[str, list[float]]] = {1: {}, 2: {}}
         skel_set: set[str] = set()
         total = 0
         for r in rows:
             expr = r["expression"]
-            sig = expression_outer_signature(expr, levels=2)
+            sig2 = expression_outer_signature(expr, levels=2)
+            sig1 = expression_outer_signature(expr, levels=1)
             skel = expression_skeleton(expr)
             if skel:
                 skel_set.add(skel)
-            if not sig:
+            if not sig2:
                 continue
             total += 1
-            outer2_counts[sig] = outer2_counts.get(sig, 0) + 1
-            if r["fitness"] is not None:
-                outer2_fits.setdefault(sig, []).append(r["fitness"])
+            for lvl, sig in ((1, sig1), (2, sig2)):
+                if not sig:
+                    continue
+                counts[lvl][sig] = counts[lvl].get(sig, 0) + 1
+                if r["fitness"] is not None:
+                    fits[lvl].setdefault(sig, []).append(r["fitness"])
 
-        def _family(sig: str) -> dict[str, Any]:
-            fits = outer2_fits.get(sig, [])
+        def _family(lvl: int, sig: str) -> dict[str, Any]:
+            fl = fits[lvl].get(sig, [])
             return {
                 "signature": sig,
-                "count": outer2_counts[sig],
-                "avg_fitness": (sum(fits) / len(fits)) if fits else None,
-                "max_fitness": max(fits) if fits else None,
+                "count": counts[lvl][sig],
+                "avg_fitness": (sum(fl) / len(fl)) if fl else None,
+                "max_fitness": max(fl) if fl else None,
             }
 
-        top = sorted(outer2_counts, key=lambda s: outer2_counts[s], reverse=True)[:limit]
+        def _top(lvl: int) -> list[dict[str, Any]]:
+            ranked = sorted(counts[lvl], key=lambda s: counts[lvl][s], reverse=True)[:limit]
+            return [_family(lvl, s) for s in ranked]
+
         return {
             "total_backtested": total,
             "unique_skeletons": len(skel_set),
-            "unique_outer2": len(outer2_counts),
-            "top_outer2": [_family(s) for s in top],
+            "unique_outer1": len(counts[1]),
+            "unique_outer2": len(counts[2]),
+            "top_outer1": _top(1),
+            "top_outer2": _top(2),
         }
 
     async def update_backtest_checks(self, alpha_id: int, checks: list[dict]) -> None:
