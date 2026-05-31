@@ -38,8 +38,14 @@ async def main(batches: int, count: int, variants: int, refine_passes: int) -> N
 
         # ---- Phase 2: 对非重近失因子 refine ----
         refined: set[int] = set()
+        from wq_agent.engine.correlation import CorrelationScreener
+        screener = CorrelationScreener(orch.db, orch.wq, orch.settings)
         for p in range(1, refine_passes + 1):
             cands = await orch.db.list_refine_candidates(limit=100)
+            # 先用 PnL 相关性筛一遍——命中硬 gate 的会被写 SELF_CORRELATION FAIL，
+            # 下面的 _is_redundant 立刻就能把它们挡掉（复用现有约定）。
+            await screener.screen([c["alpha_id"] for c in cands])
+            cands = await orch.db.list_refine_candidates(limit=100)  # 重新读，拿到刚写的 FAIL
             todo = [c for c in cands if c["alpha_id"] not in refined and not _is_redundant(c)]
             skipped = [c for c in cands if c["alpha_id"] not in refined and _is_redundant(c)]
             print(
