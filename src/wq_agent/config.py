@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # 避免反复重测已知低分结构。设为 0 关闭该过滤。
     DEDUP_FITNESS_FLOOR: float = 0.3
 
+    # PnL 收益相关性防重复（gap #4）
+    SELF_CORR_THRESHOLD: float = 0.7        # 相关性 cutoff（对齐 WQ）
+    SELF_CORR_SHARPE_MARGIN: float = 0.10   # sharpe 超越豁免线（高 10% 则 WQ 仍收）
+    SELF_CORR_MIN_OVERLAP: int = 60         # 两向量重叠不足此天数则跳过（判"未知"）
+
     DB_PATH: str = "./wq_agent.db"
 
     WIKI_DIR: str = "./wiki"
