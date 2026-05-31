@@ -163,3 +163,37 @@ async def test_ensure_pnl_lazy_and_cached(tmp_path):
         assert none is None
     finally:
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_screen_marks_hard_redundant(tmp_path):
+    db = Database(str(tmp_path / "wq.db"))
+    await db.connect()
+    try:
+        # submitted ref: sharpe 1.6, a known PnL
+        sub = await _seed_alpha(db, "rank(close)", QualityGrade.HIGH, 1.6, "WQSUB",
+                                status=AlphaStatus.SUBMITTED)
+        dates = [f"d{i}" for i in range(100)]
+        rets = [float(i % 7 - 3) for i in range(100)]
+        await db.upsert_pnl(sub, "WQSUB", dates, rets)
+        # candidate A: near-identical PnL, sharpe 1.3 (not >10% better) -> redundant
+        ca = await _seed_alpha(db, "rank(vwap)", QualityGrade.HIGH, 1.3, "WQA")
+        await db.upsert_pnl(ca, "WQA", dates, rets)
+        # candidate B: uncorrelated PnL -> not redundant
+        cb = await _seed_alpha(db, "rank(open)", QualityGrade.HIGH, 1.3, "WQB")
+        await db.upsert_pnl(cb, "WQB", dates, [float((i * 13) % 5 - 2) for i in range(100)])
+
+        wq = _FakeWQ({})  # all cached, no fetch needed
+        scr = CorrelationScreener(db, wq, Settings(_env_file=None))
+        verdicts = {v.alpha_id: v for v in await scr.screen([ca, cb])}
+
+        assert verdicts[ca].hard_redundant is True
+        assert verdicts[ca].hard_ref_id == sub
+        assert verdicts[cb].hard_redundant is False
+        # FAIL written for A, not for B
+        a_checks = (await db.get_backtest_result(ca)).checks or []
+        assert any(c.get("name") == "SELF_CORRELATION" and c.get("result") == "FAIL" for c in a_checks)
+        b_checks = (await db.get_backtest_result(cb)).checks or []
+        assert not any(c.get("name") == "SELF_CORRELATION" for c in b_checks)
+    finally:
+        await db.close()

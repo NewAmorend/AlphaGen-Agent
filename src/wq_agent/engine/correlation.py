@@ -129,3 +129,53 @@ class CorrelationScreener:
         dates, returns = fetched
         await self.db.upsert_pnl(alpha_id, wq_alpha_id, dates, returns)
         return dates, returns
+
+    async def _load_refs(self, ref_rows: list[dict]) -> list[dict]:
+        """给参考集行补上 PnL（懒加载），丢掉拉不到的。"""
+        out: list[dict] = []
+        for r in ref_rows:
+            pnl = await self.ensure_pnl(r["alpha_id"], r.get("wq_alpha_id"))
+            if pnl is None:
+                continue
+            out.append({"alpha_id": r["alpha_id"], "sharpe": r.get("sharpe"),
+                        "dates": pnl[0], "returns": pnl[1]})
+        return out
+
+    async def screen(self, candidate_ids: list[int]) -> list[Verdict]:
+        ref = await self.db.list_reference_alphas()
+        submitted_refs = await self._load_refs(ref["submitted"])
+        high_refs = await self._load_refs(ref["high"])
+        min_overlap = self.settings.SELF_CORR_MIN_OVERLAP
+        thr = self.settings.SELF_CORR_THRESHOLD
+        margin = self.settings.SELF_CORR_SHARPE_MARGIN
+
+        verdicts: list[Verdict] = []
+        for aid in candidate_ids:
+            bt = await self.db.get_backtest_result(aid)
+            if bt is None:
+                continue
+            pnl = await self.ensure_pnl(aid, bt.wq_alpha_id)
+            if pnl is None:
+                verdicts.append(Verdict(aid, False, 0.0, None, 0.0, None))
+                continue
+            cd, cr = pnl
+            # 硬 gate：vs submitted（排除自己）
+            sub = [r for r in submitted_refs if r["alpha_id"] != aid]
+            h_corr, h_ref, h_ref_sh = max_correlation(cd, cr, sub, min_overlap)
+            hard = is_hard_redundant(bt.sharpe, h_corr, h_ref_sh, thr, margin)
+            # 软提示：vs 未提交 HIGH（排除自己）
+            hi = [r for r in high_refs if r["alpha_id"] != aid]
+            s_corr, s_ref, _ = max_correlation(cd, cr, hi, min_overlap)
+
+            if hard:
+                checks = list(bt.checks or [])
+                checks = [c for c in checks if str(c.get("name", "")).upper() != "SELF_CORRELATION"]
+                checks.append({"name": "SELF_CORRELATION", "result": "FAIL",
+                               "value": round(h_corr, 4), "limit": thr, "source": "local_pnl"})
+                await self.db.update_backtest_checks(aid, checks)
+                logger.info(f"#{aid} hard-redundant: corr={h_corr:.3f} vs #{h_ref} -> SELF_CORRELATION FAIL")
+            elif abs(s_corr) > thr:
+                logger.info(f"#{aid} soft-corr {s_corr:.3f} vs unsubmitted HIGH #{s_ref} (advisory)")
+
+            verdicts.append(Verdict(aid, hard, h_corr, h_ref, s_corr, s_ref))
+        return verdicts
