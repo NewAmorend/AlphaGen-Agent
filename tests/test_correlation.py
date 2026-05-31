@@ -9,6 +9,7 @@ from wq_agent.db import Database
 from wq_agent.engine.correlation import (
     CorrelationScreener,
     align,
+    hard_gate,
     is_hard_redundant,
     max_correlation,
     parse_pnl_response,
@@ -135,6 +136,26 @@ def test_is_hard_redundant_rule():
     # no ref -> NOT redundant
     assert is_hard_redundant(cand_sharpe=1.30, max_corr=0.0, ref_sharpe=None,
                              threshold=0.7, margin=0.10) is False
+    # missing candidate sharpe -> fail-open, NOT redundant
+    assert is_hard_redundant(cand_sharpe=None, max_corr=0.93, ref_sharpe=1.40,
+                             threshold=0.7, margin=0.10) is False
+
+
+def test_hard_gate_blocks_against_any_ref():
+    # Candidate beats the MAX-corr ref by >10% (would be exempt vs that one alone),
+    # but is also correlated with a lower-sharpe ref it does NOT beat -> must block.
+    cand_d = ["d1", "d2", "d3", "d4"]
+    cand_r = [1.0, 2.0, 3.0, 4.0]
+    refs = [
+        {"alpha_id": 21, "sharpe": 0.8, "dates": cand_d, "returns": [1.0, 2.0, 3.0, 4.0]},  # corr +1.0
+        {"alpha_id": 22, "sharpe": 5.0, "dates": cand_d, "returns": [1.1, 2.0, 3.0, 4.2]},  # ~corr +1, higher sharpe
+    ]
+    # cand_sharpe 1.5 beats ref 21 (0.8) by >10% but not ref 22 (5.0)
+    blocked, corr, ref_id = hard_gate(1.5, cand_d, cand_r, refs, min_overlap=3,
+                                      threshold=0.7, margin=0.10)
+    assert blocked is True
+    # blocking ref is one it failed to beat (22); reported as the strongest-corr blocker
+    assert ref_id == 22
 
 
 class _FakeWQ:
@@ -186,18 +207,24 @@ async def test_screen_marks_hard_redundant(tmp_path):
         # candidate B: uncorrelated PnL -> not redundant
         cb = await _seed_alpha(db, "rank(open)", QualityGrade.HIGH, 1.3, "WQB")
         await db.upsert_pnl(cb, "WQB", dates, [float((i * 13) % 5 - 2) for i in range(100)])
+        # candidate C: identical PnL to ref BUT sharpe 2.0 (>10% better than 1.6) -> WQ would accept
+        cc = await _seed_alpha(db, "rank(high)", QualityGrade.HIGH, 2.0, "WQC")
+        await db.upsert_pnl(cc, "WQC", dates, rets)
 
         wq = _FakeWQ({})  # all cached, no fetch needed
         scr = CorrelationScreener(db, wq, Settings(_env_file=None))
-        verdicts = {v.alpha_id: v for v in await scr.screen([ca, cb])}
+        verdicts = {v.alpha_id: v for v in await scr.screen([ca, cb, cc])}
 
         assert verdicts[ca].hard_redundant is True
         assert verdicts[ca].hard_ref_id == sub
         assert verdicts[cb].hard_redundant is False
-        # FAIL written for A, not for B
+        assert verdicts[cc].hard_redundant is False   # correlated but 10%+ better sharpe
+        # FAIL written for A, not for B or C
         a_checks = (await db.get_backtest_result(ca)).checks or []
         assert any(c.get("name") == "SELF_CORRELATION" and c.get("result") == "FAIL" for c in a_checks)
         b_checks = (await db.get_backtest_result(cb)).checks or []
         assert not any(c.get("name") == "SELF_CORRELATION" for c in b_checks)
+        c_checks = (await db.get_backtest_result(cc)).checks or []
+        assert not any(c.get("name") == "SELF_CORRELATION" for c in c_checks)
     finally:
         await db.close()

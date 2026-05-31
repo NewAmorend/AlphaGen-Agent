@@ -87,13 +87,37 @@ def is_hard_redundant(
     """硬 gate：|相关| > threshold 且 候选 sharpe 没比命中的 ref 高 margin → 判重。
 
     镜像 WQ：高相关但 sharpe 明显更好（≥ margin）的不算重复（WQ 视为升级版）。
-    缺 ref 或缺 sharpe → 不判重（fail-open）。
+    缺 ref sharpe / 缺候选 sharpe / 相关不超阈值 → 不判重（fail-open）。
     """
-    if ref_sharpe is None or abs(max_corr) <= threshold:
+    if ref_sharpe is None or cand_sharpe is None or abs(max_corr) <= threshold:
         return False
-    if cand_sharpe is None:
-        return True  # 相关超阈值又拿不到候选 sharpe → 保守判重
     return cand_sharpe < (1.0 + margin) * ref_sharpe
+
+
+def hard_gate(
+    cand_sharpe: float | None,
+    cand_dates: list[str], cand_returns: list[float],
+    submitted_refs: list[dict], min_overlap: int, threshold: float, margin: float,
+) -> tuple[bool, float, int | None]:
+    """硬 gate：候选与**任一**已提交因子 |相关| > threshold 且没比它高 margin → 判重。
+
+    镜像 WQ——它会拿候选和你**所有**已提交 alpha 比，任一撞上就拒。只看最大相关那个
+    会漏：候选可能比最相关的 ref 高 10%（豁免），却撞上另一个 sharpe 更低、它没超越的 ref。
+    返回 (redundant, blocking_corr, blocking_ref_id)；blocking 取触发判重里 |相关| 最大者。
+    """
+    blocked = False
+    block_corr = 0.0
+    block_id: int | None = None
+    for ref in submitted_refs:
+        va, vb = align(cand_dates, cand_returns, ref.get("dates", []), ref.get("returns", []))
+        if len(va) < min_overlap:
+            continue
+        corr = pearson(va, vb)
+        if is_hard_redundant(cand_sharpe, corr, ref.get("sharpe"), threshold, margin):
+            blocked = True
+            if abs(corr) > abs(block_corr):
+                block_corr, block_id = corr, ref["alpha_id"]
+    return blocked, block_corr, block_id
 
 
 @dataclass
@@ -159,10 +183,9 @@ class CorrelationScreener:
                 verdicts.append(Verdict(aid, False, 0.0, None, 0.0, None))
                 continue
             cd, cr = pnl
-            # 硬 gate：vs submitted（排除自己）
+            # 硬 gate：vs 任一已提交因子（排除自己）
             sub = [r for r in submitted_refs if r["alpha_id"] != aid]
-            h_corr, h_ref, h_ref_sh = max_correlation(cd, cr, sub, min_overlap)
-            hard = is_hard_redundant(bt.sharpe, h_corr, h_ref_sh, thr, margin)
+            hard, h_corr, h_ref = hard_gate(bt.sharpe, cd, cr, sub, min_overlap, thr, margin)
             # 软提示：vs 未提交 HIGH（排除自己）
             hi = [r for r in high_refs if r["alpha_id"] != aid]
             s_corr, s_ref, _ = max_correlation(cd, cr, hi, min_overlap)

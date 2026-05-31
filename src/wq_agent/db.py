@@ -790,10 +790,16 @@ class Database:
         assert self._conn is not None
 
         async def _q(where: str, params: tuple) -> list[dict[str, Any]]:
+            # 每个 alpha 可能有多条 backtest_results（重测）——只取最新一条，
+            # 否则同一 alpha 会重复进参考集、且可能带不同 sharpe，污染相关性判定。
             cursor = await self._conn.execute(
                 f"""SELECT a.id AS alpha_id, b.wq_alpha_id, b.sharpe
                     FROM alphas a JOIN backtest_results b ON a.id = b.alpha_id
-                    WHERE {where} AND b.wq_alpha_id IS NOT NULL""",
+                    WHERE {where} AND b.wq_alpha_id IS NOT NULL
+                      AND b.created_at = (
+                          SELECT MAX(b2.created_at) FROM backtest_results b2
+                          WHERE b2.alpha_id = a.id
+                      )""",
                 params,
             )
             return [dict(r) for r in await cursor.fetchall()]
