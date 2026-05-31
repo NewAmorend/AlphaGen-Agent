@@ -783,6 +783,25 @@ class Database:
         )
         await self._conn.commit()
 
+    async def list_reference_alphas(self) -> dict[str, list[dict[str, Any]]]:
+        """相关性参考集：submitted（硬 gate）与 HIGH-未提交（软提示）。
+        每项 {alpha_id, wq_alpha_id, sharpe}；wq_alpha_id 为空的跳过（拉不了 PnL）。
+        """
+        assert self._conn is not None
+
+        async def _q(where: str, params: tuple) -> list[dict[str, Any]]:
+            cursor = await self._conn.execute(
+                f"""SELECT a.id AS alpha_id, b.wq_alpha_id, b.sharpe
+                    FROM alphas a JOIN backtest_results b ON a.id = b.alpha_id
+                    WHERE {where} AND b.wq_alpha_id IS NOT NULL""",
+                params,
+            )
+            return [dict(r) for r in await cursor.fetchall()]
+
+        submitted = await _q("a.status = ?", (AlphaStatus.SUBMITTED.value,))
+        high = await _q("a.status != ? AND b.grade = 'high'", (AlphaStatus.SUBMITTED.value,))
+        return {"submitted": submitted, "high": high}
+
     async def find_alpha_by_wq_id(self, wq_alpha_id: str) -> int | None:
         """返回 wq_id 对应的第一个 local alpha id（向后兼容；多匹配请用 find_alphas_by_wq_id）。"""
         ids = await self.find_alphas_by_wq_id(wq_alpha_id)
