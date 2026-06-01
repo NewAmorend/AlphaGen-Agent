@@ -391,22 +391,35 @@ class WQClient:
         is_data = data.get("is") or {}
         return is_data.get("checks")
 
-    async def get_pnl(self, wq_alpha_id: str) -> tuple[list[str], list[float]] | None:
-        """拉 alpha 的 PnL recordset → （日期, 每日收益）。失败返回 None（fail-open）。"""
+    async def get_pnl(
+        self, wq_alpha_id: str, max_attempts: int = 4,
+    ) -> tuple[list[str], list[float]] | None:
+        """拉 alpha 的 PnL recordset → （日期, 每日收益）。失败返回 None（fail-open）。
+
+        WQ 在突发请求下会对 recordset 端点返回 **200 + 空 body**（软节流），recordset 也
+        可能在异步生成时短暂为空——这两种都退避重试。真正的非-200 / 解析错误直接 None。
+        """
         from ..engine.correlation import parse_pnl_response
-        try:
-            resp = await self._request("get", f"/alphas/{wq_alpha_id}/recordsets/pnl")
-        except Exception as exc:
-            logger.warning(f"get_pnl({wq_alpha_id}) request failed: {exc}")
-            return None
-        if resp.status_code != 200:
-            logger.warning(f"get_pnl({wq_alpha_id}) status {resp.status_code}")
-            return None
-        try:
-            return parse_pnl_response(resp.json())
-        except Exception as exc:
-            logger.warning(f"get_pnl({wq_alpha_id}) parse failed: {exc}")
-            return None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = await self._request("get", f"/alphas/{wq_alpha_id}/recordsets/pnl")
+            except Exception as exc:
+                logger.warning(f"get_pnl({wq_alpha_id}) request failed: {exc}")
+                return None
+            if resp.status_code != 200:
+                logger.warning(f"get_pnl({wq_alpha_id}) status {resp.status_code}")
+                return None
+            if resp.text.strip():
+                try:
+                    return parse_pnl_response(resp.json())
+                except Exception as exc:
+                    logger.warning(f"get_pnl({wq_alpha_id}) parse failed: {exc}")
+                    return None
+            # 200 + 空 body = 节流/未就绪 → 退避重试
+            if attempt < max_attempts:
+                await asyncio.sleep(attempt)  # 1s, 2s, 3s
+        logger.warning(f"get_pnl({wq_alpha_id}) empty body after {max_attempts} attempts")
+        return None
 
 
 def _DEFAULT_OPERATORS() -> list[WQOperator]:

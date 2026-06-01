@@ -81,6 +81,43 @@ def test_parse_pnl_response_diffs_to_daily_returns():
     assert returns == [1.5, -0.5]
 
 
+@pytest.mark.asyncio
+async def test_get_pnl_retries_on_empty_200_then_parses(monkeypatch):
+    """WQ 突发节流会返回 200+空 body；get_pnl 应退避重试而非当成永久失败。"""
+    import wq_agent.wq.client as clientmod
+    from wq_agent.wq.client import WQClient
+
+    wq = WQClient(Settings(_env_file=None))
+
+    class _Resp:
+        def __init__(self, status, text):
+            self.status_code = status
+            self.text = text
+
+        def json(self):
+            import json
+            return json.loads(self.text)
+
+    seq = [_Resp(200, ""), _Resp(200, "   "),
+           _Resp(200, '{"records":[["d1",0.0],["d2",3.0],["d3",1.0]]}')]
+    calls = {"n": 0}
+
+    async def fake_request(method, path, **k):
+        r = seq[min(calls["n"], len(seq) - 1)]
+        calls["n"] += 1
+        return r
+
+    async def nosleep(*a, **k):
+        pass
+
+    monkeypatch.setattr(wq, "_request", fake_request)
+    monkeypatch.setattr(clientmod.asyncio, "sleep", nosleep)
+    out = await wq.get_pnl("X")
+    assert out == (["d2", "d3"], [3.0, -2.0])   # diffed daily returns
+    assert calls["n"] == 3                       # two empties + one good
+    await wq.close()
+
+
 def test_parse_pnl_response_skips_malformed():
     data = {"records": [["2020-01-02", 0.0], ["2020-01-03", None], "junk", ["2020-01-06", 2.0]]}
     dates, returns = parse_pnl_response(data)
