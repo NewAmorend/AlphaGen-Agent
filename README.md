@@ -113,9 +113,9 @@ src/wq_agent/
 ├── engine/
 │   ├── backtest.py     # Simulation 提交与轮询
 │   └── evaluator.py    # 多指标评级
-└── wiki/               # Quant Wiki：三通道混合检索 + 自动沉淀
+└── wiki/               # Quant Wiki：三通道混合检索 + 私有自动沉淀
     ├── schema.py       # frontmatter / Page 数据类
-    ├── store.py        # 扫盘、wikilink 解析、断链检测
+    ├── store.py        # public/private 扫盘、wikilink 解析、断链检测
     ├── tokenize.py     # FMM + 同义词扩展
     ├── embeddings.py   # Volcengine / zhipu / NoOp
     ├── index.py        # 全量/增量索引器
@@ -127,20 +127,21 @@ src/wq_agent/
         └── hybrid.py   # priority + 加权 RRF + 图扩展
 templates/
 └── alpha_templates.yaml
-wiki/                   # 知识内容（人写 + 自动写）
+wiki/                   # 可公开知识内容（人写：理论、字段、算子、论文、recipes）
 ├── SCHEMA.md
-├── concepts/  operators/  fields/  patterns/  recipes/
-├── entries/   lessons/   bench/
+├── concepts/  operators/  fields/  patterns/  recipes/  papers/
+├── bench/
 └── dictionary/
     ├── base.txt
     └── synonyms.yaml
+private_wiki/           # 私有自动沉淀：真实 alpha entries / lessons，默认 gitignore
 ```
 
 ## Quant Wiki（三通道混合检索）
 
-参考 [cnblogs.com/jtuki/p/19861920](https://www.cnblogs.com/jtuki/p/19861920) 的 AI Agent 结构化知识层架构，给 alpha 生成提供领域知识 + 历史教训。当前内容层分为 `concepts/`（理论）、`fields/`（字段语义）、`patterns/`（失败模式）、`recipes/`（构造手册）、`entries/lessons/`（自动沉淀）。架构：
+参考 [cnblogs.com/jtuki/p/19861920](https://www.cnblogs.com/jtuki/p/19861920) 的 AI Agent 结构化知识层架构，给 alpha 生成提供领域知识 + 历史教训。当前内容层分为 `concepts/`（理论）、`fields/`（字段语义）、`patterns/`（失败模式）、`recipes/`（构造手册）和私有 `entries/lessons/`（自动沉淀）。架构：
 
-- **存储**：`wiki/` 下的 markdown，YAML frontmatter + `[[wikilinks]]`，规范见 [wiki/SCHEMA.md](wiki/SCHEMA.md)
+- **存储**：`wiki/` 下放可公开 markdown；`private_wiki/` 下放真实自动沉淀记录。二者都会被生成侧检索，只有 `private_wiki/` 默认 gitignore。YAML frontmatter + `[[wikilinks]]` 规范见 [wiki/SCHEMA.md](wiki/SCHEMA.md)
 - **词法通道**：FMM 分词（`wiki/dictionary/base.txt` + `synonyms.yaml`）+ 页面正文/slug/tags/frontmatter 元数据 + IDF/Coverage 评分，纯 `0.6 * 加权 IDF 覆盖率 + 0.25 * 原始词条覆盖率`（上限 0.85）
 - **向量通道**：sqlite-vec 表 + Volcengine / zhipu Embedding，余弦排名
 - **图通道**：NetworkX 构建 wikilink + 共享标签 + 共享来源边，Louvain 社区检测 + PageRank，邻居扩展
@@ -218,12 +219,12 @@ wq-agent wiki import-paper --manual \
 
 ### 自学习
 
-`WIKI_AUTO_RECORD=true` 时，每次 `wq-agent run` 的 backtest 完成后：
+`WIKI_AUTO_RECORD=true` 时，每次 `wq-agent run` 的 backtest 完成后，真实研究记录默认写入 `WIKI_AUTO_RECORD_DIR=./private_wiki`：
 
-- HIGH / MEDIUM 结果 → `wiki/entries/{date}-alpha-{id}.md`
-- REJECT 结果按"失败原因"聚类 → `wiki/lessons/{date}-batch-N.md`
+- HIGH / MEDIUM 结果 → `private_wiki/entries/{date}-alpha-{id}.md`
+- REJECT 结果按"失败原因"聚类 → `private_wiki/lessons/{date}-batch-N.md`
 
-下次生成时，新写的 entries / lessons 就会被检索通道命中并喂给 LLM。
+下次生成时，`wiki/` 与 `private_wiki/` 会合并检索，所以私有 entries / lessons 仍会喂给 LLM；但 `private_wiki/` 已在 `.gitignore` 中，适合长期维护开源仓。
 
 ### 选向量后端
 
@@ -254,6 +255,15 @@ EMBEDDING_DIM=2048
 ```
 
 `none` 关闭向量通道，只用 grep + 图。
+
+## 开源安全
+
+本仓库按“public code + private research”设计：
+
+- 可以公开：`src/`、`tests/`、`templates/`、`wiki/concepts` / `operators` / `fields` / `patterns` / `recipes` / `papers`、`.env.example`。
+- 不要公开：`.env`、`wq_agent.db`、`*.log`、`.claude/`、`.codex/`、`private_wiki/`、`wiki/entries/`、`wiki/lessons/`。
+- 重新开 public 前建议跑：`git ls-files | rg '^(private_wiki/|wiki/entries/|wiki/lessons/|\.claude/|\.codex/|\.env$)|\.(db|log)$'`，应无输出。
+
 
 ## 开发
 

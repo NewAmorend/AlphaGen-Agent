@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from wq_agent.wiki.schema import PageType, parse_page
-from wq_agent.wiki.store import WikiStore
+from wq_agent.wiki.store import CompositeWikiStore, WikiStore
 
 
 def test_parse_page_extracts_frontmatter_and_links(wiki_root: Path):
@@ -52,3 +52,34 @@ def test_store_resolves_path_style_wikilinks(wiki_root: Path):
     pages, _ = store.load_pages()
     broken = store.find_broken_links(pages)
     assert not any("operators/ts_delta" in misses for _, misses in broken)
+
+
+def test_composite_store_reads_public_and_private_pages(wiki_root: Path, tmp_path: Path):
+    private_root = tmp_path / "private_wiki"
+    (private_root / "entries").mkdir(parents=True)
+    (private_root / "entries/alpha-1.md").write_text(
+        "---\ntitle: Private Alpha 1\ntype: entry\ntags: [entry, private]\ncreated: 2026-06-05\n---\n\n"
+        "私有记录引用 [[operators/ts_delta]] 和 [[entries/alpha-1]]。\n",
+        encoding="utf-8",
+    )
+
+    store = CompositeWikiStore(wiki_root, [private_root])
+    pages, errors = store.load_pages()
+
+    assert errors == []
+    assert len(pages) == 5
+    assert any(p.title == "Private Alpha 1" for p in pages)
+    assert store.dictionary_path() == wiki_root / "dictionary" / "base.txt"
+    assert not any("operators/ts_delta" in misses for _, misses in store.find_broken_links(pages))
+    assert not any("entries/alpha-1" in misses for _, misses in store.find_broken_links(pages))
+
+
+def test_composite_store_exists_when_only_private_root_exists(tmp_path: Path):
+    public_root = tmp_path / "wiki"
+    private_root = tmp_path / "private_wiki"
+    private_root.mkdir()
+
+    store = CompositeWikiStore(public_root, [private_root])
+
+    assert store.exists()
+    assert list(store.iter_page_paths()) == []

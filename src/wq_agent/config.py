@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     WIKI_GREP_WEIGHT: int = 7
     WIKI_VECTOR_WEIGHT: int = 3
     WIKI_AUTO_RECORD: bool = True
+    WIKI_AUTO_RECORD_DIR: str = "./private_wiki"
     WIKI_SUMMARY_CHARS: int = 200
 
     # EMBEDDING_PROVIDER: none | local | volcengine | zhipu

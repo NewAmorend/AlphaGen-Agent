@@ -23,7 +23,7 @@ from ..generator.template import TemplateAlphaGenerator
 from ..generator.factor import FactorMiningGenerator
 from ..generator.base import BaseAlphaGenerator
 from ..engine.backtest import BacktestEngine
-from ..wiki.store import WikiStore
+from ..wiki.store import CompositeWikiStore, WikiStore
 from ..wiki.index import WikiIndex
 from ..wiki.embeddings import BaseEmbeddingProvider, make_embedding_provider
 from ..wiki.auto_record import AutoRecorder
@@ -67,9 +67,14 @@ class Orchestrator:
         logger.info("Orchestrator initialized")
 
     async def _init_wiki(self):
-        store = WikiStore(self.settings.WIKI_DIR)
+        public_store = WikiStore(self.settings.WIKI_DIR)
+        private_store = WikiStore(self.settings.WIKI_AUTO_RECORD_DIR)
+        store = CompositeWikiStore(public_store.root, [private_store.root])
         if not store.exists():
-            logger.info(f"Wiki dir {self.settings.WIKI_DIR} not found; skipping wiki integration")
+            logger.info(
+                f"Wiki dirs {self.settings.WIKI_DIR} / {self.settings.WIKI_AUTO_RECORD_DIR} "
+                "not found; skipping wiki integration"
+            )
             return None
         try:
             self._embedder = make_embedding_provider(self.settings)
@@ -94,7 +99,8 @@ class Orchestrator:
             logger.warning(f"Wiki index build failed; retrieval disabled: {exc}")
             return None
         if self.settings.WIKI_AUTO_RECORD:
-            self._auto_recorder = AutoRecorder(store=store, index=self._wiki_index)
+            self._auto_recorder = AutoRecorder(store=private_store, index=self._wiki_index)
+            logger.info(f"Wiki auto-record target: {private_store.root}")
         return self._wiki_index.retriever
 
     async def close(self) -> None:
