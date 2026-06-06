@@ -74,6 +74,9 @@ OPENAI_CHAT_REASONING_EFFORT=false
 安装后会注册 `wq-agent` 命令：
 
 ```bash
+# 无参数启动中文菜单
+wq-agent
+
 # 启动中文本地 Web GUI（默认只绑定 127.0.0.1）
 wq-agent gui
 
@@ -300,6 +303,44 @@ EMBEDDING_DIM=2048
 ```
 
 `none` 关闭向量通道，只用 grep + 图。
+
+## Windows exe 一键启动
+
+本项目支持构建 Windows 文件夹发行版，目标产物是：
+
+```powershell
+dist\wq-agent\wq-agent.exe
+```
+
+构建前安装打包依赖：
+
+```powershell
+python -m pip install -e ".[build]"
+python scripts\build_windows_exe.py
+```
+
+发行目录说明：
+
+- `wq-agent.exe` 是完整程序入口，不是单独 GUI 壳。
+- 双击 `wq-agent.exe` 会进入中文命令菜单，可启动 GUI、运行完整流程、回测待处理任务、查看状态，或输入任意现有 CLI 参数。
+- 命令行传参时仍保留完整 CLI 能力，例如：
+
+```powershell
+dist\wq-agent\wq-agent.exe --help
+dist\wq-agent\wq-agent.exe gui
+dist\wq-agent\wq-agent.exe run --count 18 --batches 1
+dist\wq-agent\wq-agent.exe backtest --pending
+dist\wq-agent\wq-agent.exe wiki stats
+```
+
+冻结程序启动后会把工作目录切到 exe 所在目录，因此运行数据默认放在 `dist\wq-agent\` 里：
+
+- `.env`
+- `wq_agent.db`
+- `wq_agent.log`
+- `private_wiki\`
+
+打包脚本只复制公开运行资源：`src\wq_agent\gui\static\`、`templates\`、`wiki\` 和 `.env.example`。真实 `.env`、数据库、日志、`private_wiki\`、`wiki\entries\`、`wiki\lessons\`、`.git\` 不会被打进发行目录。首次运行可复制或编辑 `.env.example` 生成自己的 `.env`。
 
 ## 开源安全
 

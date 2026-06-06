@@ -52,6 +52,16 @@ NUMBER_MAXIMUMS = {
 }
 
 
+def is_frozen_runtime() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def build_subprocess_command(cli_args: list[str]) -> list[str]:
+    if is_frozen_runtime():
+        return [sys.executable, *cli_args]
+    return [sys.executable, "-m", "wq_agent.cli", *cli_args]
+
+
 @dataclass(frozen=True)
 class ConfigField:
     key: str
@@ -365,7 +375,7 @@ class Job:
         return {
             "id": self.id,
             "action": self.action,
-            "command": [self.command[0], "-m", "wq_agent.cli", self.action],
+            "command": self.command,
             "status": self.status,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -386,7 +396,7 @@ class JobManager:
         with self._lock:
             if self._job and self._job.status in {"pending", "running", "cancelling"}:
                 raise RuntimeError("已有任务正在运行，请等待完成后再启动新任务")
-            command = [sys.executable, "-m", "wq_agent.cli", *cli_args]
+            command = build_subprocess_command(cli_args)
             job = Job(id=str(uuid.uuid4()), action=action, command=command)
             self._job = job
             thread = threading.Thread(target=self._run, args=(job,), daemon=True)
