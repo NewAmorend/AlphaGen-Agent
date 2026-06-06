@@ -267,6 +267,58 @@ def test_env_save_clears_incompatible_hidden_global_model_on_provider_switch(tmp
     assert "LLM_MODEL=gpt-5.4" not in text
 
 
+def test_env_save_clears_compatible_hidden_global_model_when_provider_model_is_saved(tmp_path):
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "LLM_PROVIDER=kimi",
+                "LLM_MODEL=kimi-k2.6",
+                "KIMI_MODEL=kimi-k2.6",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    EnvManager(tmp_path).save({"KIMI_MODEL": "kimi-custom"})
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert "LLM_MODEL=" in text
+    assert "KIMI_MODEL=kimi-custom" in text
+    assert "LLM_MODEL=kimi-k2.6" not in text
+
+
+def test_env_save_preserves_hidden_provider_values_on_provider_switch(tmp_path):
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "LLM_PROVIDER=openai",
+                "OPENAI_API_KEY=openai-secret",
+                "OPENAI_MODEL=gpt-5.4",
+                "KIMI_API_KEY=kimi-secret",
+                "KIMI_MODEL=kimi-k2.6",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    EnvManager(tmp_path).save(
+        {
+            "LLM_PROVIDER": "kimi",
+            "LLM_MAX_TOKENS": "32768",
+            "KIMI_MODEL": "kimi-k2.6",
+        }
+    )
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert "LLM_PROVIDER=kimi" in text
+    assert "OPENAI_API_KEY=openai-secret" in text
+    assert "OPENAI_MODEL=gpt-5.4" in text
+    assert "KIMI_API_KEY=kimi-secret" in text
+    assert "KIMI_MODEL=kimi-k2.6" in text
+
+
 def test_config_model_options_stay_in_sync_with_factory_and_frontend():
     field_map = {field.key: field for field in CONFIG_FIELDS}
     expected_global = {""}

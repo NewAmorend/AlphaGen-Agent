@@ -136,6 +136,23 @@ def test_pyinstaller_command_includes_gui_upload_parser_hidden_imports(monkeypat
     assert "docx" in command
 
 
+def test_pyinstaller_command_uses_console_launcher_entry(monkeypatch):
+    commands = []
+
+    def fake_run(command, cwd, check):
+        commands.append(command)
+
+    monkeypatch.setattr(build_windows_exe.subprocess, "run", fake_run)
+
+    build_windows_exe._run_pyinstaller()
+
+    command = commands[0]
+    assert "--console" in command
+    assert "--windowed" not in command
+    assert "--noconsole" not in command
+    assert str(build_windows_exe.PROJECT_ROOT / "src" / "wq_agent" / "launcher.py") in command
+
+
 def teardown_module() -> None:
     if SCRIPT_PATH.parent.joinpath("__pycache__").exists():
         shutil.rmtree(SCRIPT_PATH.parent / "__pycache__", ignore_errors=True)

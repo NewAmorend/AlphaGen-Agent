@@ -243,7 +243,7 @@ class EnvManager:
             normalized[key] = self._quote_value(text)
 
         current_values = self._read_values()
-        _clear_incompatible_legacy_model(current_values, raw_normalized, normalized)
+        _clear_hidden_legacy_model(current_values, raw_normalized, normalized)
         _validate_config_updates(current_values, raw_normalized)
 
         updated_lines: list[str] = []
@@ -825,7 +825,7 @@ def _validate_config_value(field_def: ConfigField, text: str) -> str:
     return text
 
 
-def _clear_incompatible_legacy_model(
+def _clear_hidden_legacy_model(
     current_values: dict[str, str],
     raw_updates: dict[str, str],
     quoted_updates: dict[str, str],
@@ -835,7 +835,14 @@ def _clear_incompatible_legacy_model(
     values = {**current_values, **raw_updates}
     provider = (values.get("LLM_PROVIDER") or _settings_default("LLM_PROVIDER")).strip().lower()
     model = (values.get("LLM_MODEL") or "").strip()
-    if not model or provider == "openai":
+    if not model:
+        return
+    provider_model_key = f"{provider.upper()}_MODEL"
+    if "LLM_PROVIDER" in raw_updates or provider_model_key in raw_updates:
+        raw_updates["LLM_MODEL"] = ""
+        quoted_updates["LLM_MODEL"] = ""
+        return
+    if provider == "openai":
         return
     allowed = GLOBAL_MODEL_OPTIONS.get(provider)
     if allowed and model not in allowed:

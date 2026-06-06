@@ -142,25 +142,54 @@ async function loadConfig() {
 
 function renderConfig(fields) {
   const visibleFields = visibleConfigFields(fields);
-  const groups = new Map();
-  visibleFields.forEach((field) => {
-    if (!groups.has(field.section)) {
-      groups.set(field.section, []);
+  const provider = currentProvider(fields);
+  const modelFields = visibleFields.filter((field) => field.section === "模型");
+  const generalModelFields = modelFields.filter((field) => !field.provider);
+  const providerModelFields = modelFields.filter((field) => field.provider === provider);
+  const nonModelFields = visibleFields.filter((field) => field.section !== "模型");
+  const groups = [
+    {
+      key: "model-general",
+      title: "通用模型参数",
+      meta: "LLM Provider",
+      fields: generalModelFields,
+    },
+    {
+      key: "model-provider",
+      title: providerConfigTitle(provider),
+      meta: `当前供应商：${provider}`,
+      fields: providerModelFields,
+    },
+  ];
+  nonModelFields.forEach((field) => {
+    let group = groups.find((item) => item.key === field.section);
+    if (!group) {
+      group = { key: field.section, title: field.section, meta: "", fields: [] };
+      groups.push(group);
     }
-    groups.get(field.section).push(field);
+    group.fields.push(field);
   });
 
-  $("configForm").innerHTML = "";
-  for (const [section, items] of groups) {
-    const sectionEl = document.createElement("section");
-    sectionEl.className = "config-section";
-    sectionEl.innerHTML = `<h4>${escapeHtml(configSectionTitle(section))}</h4>`;
-    const fieldsEl = document.createElement("div");
-    fieldsEl.className = "config-fields";
-    items.forEach((field) => fieldsEl.appendChild(configField(field)));
-    sectionEl.appendChild(fieldsEl);
-    $("configForm").appendChild(sectionEl);
-  }
+  const form = $("configForm");
+  form.innerHTML = "";
+  groups
+    .filter((group) => group.fields.length)
+    .forEach((group) => {
+      const sectionEl = document.createElement("section");
+      sectionEl.className = `config-section config-section-${cssToken(group.key)}`;
+      const headEl = document.createElement("div");
+      headEl.className = "config-section-head";
+      headEl.innerHTML = `
+        <h4>${escapeHtml(group.title)}</h4>
+        ${group.meta ? `<span>${escapeHtml(group.meta)}</span>` : ""}
+      `;
+      const fieldsEl = document.createElement("div");
+      fieldsEl.className = "config-fields";
+      group.fields.forEach((field) => fieldsEl.appendChild(configField(field)));
+      sectionEl.appendChild(headEl);
+      sectionEl.appendChild(fieldsEl);
+      form.appendChild(sectionEl);
+    });
 }
 
 function visibleConfigFields(fields) {
@@ -181,12 +210,9 @@ function currentProvider(fields = state.configFields) {
   return String(provider).toLowerCase();
 }
 
-function configSectionTitle(section) {
-  if (section !== "模型") {
-    return section;
-  }
-  const labels = { openai: "模型 / OpenAI", kimi: "模型 / Kimi", deepseek: "模型 / DeepSeek" };
-  return labels[currentProvider()] || "模型";
+function providerConfigTitle(provider) {
+  const labels = { openai: "OpenAI 参数", kimi: "Kimi 参数", deepseek: "DeepSeek 参数" };
+  return labels[provider] || "供应商参数";
 }
 
 function configField(field) {
@@ -334,6 +360,10 @@ async function saveConfig() {
   } catch (error) {
     toast(error.message);
   }
+}
+
+function cssToken(value) {
+  return String(value).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "group";
 }
 
 function renderConfigStatus(fields) {
