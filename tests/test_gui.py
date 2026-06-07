@@ -5,6 +5,8 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -212,6 +214,102 @@ def test_env_save_can_clear_secret_explicitly(tmp_path):
     assert values["OPENAI_API_KEY"]["has_value"] is False
 
 
+def test_env_save_updates_wq_password_without_touching_api_keys(tmp_path):
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=openai-secret",
+                "KIMI_API_KEY=kimi-secret",
+                "DEEPSEEK_API_KEY=deepseek-secret",
+                "WQ_PASSWORD=old-wq-secret",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    EnvManager(tmp_path).save({"WQ_PASSWORD": "new-wq-secret"})
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert "WQ_PASSWORD=new-wq-secret" in text
+    assert "OPENAI_API_KEY=openai-secret" in text
+    assert "KIMI_API_KEY=kimi-secret" in text
+    assert "DEEPSEEK_API_KEY=deepseek-secret" in text
+
+
+def test_env_save_updates_api_key_without_touching_wq_password(tmp_path):
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=old-openai-secret\nWQ_PASSWORD=wq-secret\n",
+        encoding="utf-8",
+    )
+
+    EnvManager(tmp_path).save({"OPENAI_API_KEY": "new-openai-secret"})
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert "OPENAI_API_KEY=new-openai-secret" in text
+    assert "WQ_PASSWORD=wq-secret" in text
+
+
+def test_env_save_rejects_matching_wq_password_and_api_key_updates(tmp_path):
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=old-openai-secret\nWQ_PASSWORD=old-wq-secret\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="自动填充污染"):
+        EnvManager(tmp_path).save(
+            {
+                "OPENAI_API_KEY": "same-secret-value",
+                "WQ_PASSWORD": "same-secret-value",
+            }
+        )
+
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY=old-openai-secret" in text
+    assert "WQ_PASSWORD=old-wq-secret" in text
+
+
+def test_env_save_rejects_api_key_matching_current_wq_password(tmp_path):
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=old-openai-secret\nWQ_PASSWORD=current-wq-secret\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="自动填充污染"):
+        EnvManager(tmp_path).save({"OPENAI_API_KEY": "current-wq-secret"})
+
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY=old-openai-secret" in text
+    assert "WQ_PASSWORD=current-wq-secret" in text
+
+
+def test_env_save_rejects_wq_password_matching_current_api_key(tmp_path):
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=current-openai-secret\nWQ_PASSWORD=old-wq-secret\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="自动填充污染"):
+        EnvManager(tmp_path).save({"WQ_PASSWORD": "current-openai-secret"})
+
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY=current-openai-secret" in text
+    assert "WQ_PASSWORD=old-wq-secret" in text
+
+
+def test_env_save_clear_one_secret_only_affects_that_key(tmp_path):
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=openai-secret\nWQ_PASSWORD=wq-secret\n",
+        encoding="utf-8",
+    )
+
+    EnvManager(tmp_path).save({"OPENAI_API_KEY": CLEAR_SECRET_VALUE})
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert "OPENAI_API_KEY=" in text
+    assert "WQ_PASSWORD=wq-secret" in text
+
+
 def test_env_save_deduplicates_keys_and_quotes_special_values(tmp_path):
     (tmp_path / ".env").write_text(
         "OPENAI_MODEL=old\nOPENAI_MODEL=older\nOPENAI_BASE_URL=https://api.openai.com/v1\n",
@@ -337,6 +435,117 @@ def test_config_model_options_stay_in_sync_with_factory_and_frontend():
         assert provider in app_js
         for model in models:
             assert model in app_js
+
+
+def test_frontend_secrets_require_explicit_editing_before_save():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'input.dataset.secret = "true"' in app_js
+    assert 'input.dataset.secretEditing = "false"' in app_js
+    assert 'input.disabled = true' in app_js
+    assert 'isSecret && input.dataset.secretEditing !== "true"' in app_js
+    assert "return;" in app_js
+    assert "autocompleteForField" in app_js
+    assert "wq-agent-${cssToken(field.key)}" in app_js
+
+
+def test_frontend_collect_config_values_secret_payload_behavior(tmp_path):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for frontend behavior coverage")
+
+    script = tmp_path / "config_payload_test.js"
+    script.write_text(
+        r"""
+const assert = require("assert");
+const fs = require("fs");
+const vm = require("vm");
+
+let currentInputs = [];
+const context = {
+  document: {
+    addEventListener() {},
+    getElementById() { return null; },
+    querySelectorAll(selector) {
+      assert.strictEqual(selector, "[data-config-key]");
+      return currentInputs;
+    },
+  },
+  window: { setTimeout() {} },
+};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), context, { filename: "app.js" });
+
+function collect() {
+  return JSON.parse(JSON.stringify(context.collectConfigValues()));
+}
+
+function secret(key, options = {}) {
+  return {
+    dataset: {
+      configKey: key,
+      secret: "true",
+      secretEditing: options.editing || "false",
+      clearSecret: options.clear || "false",
+    },
+    type: "password",
+    value: options.value || "",
+  };
+}
+
+function plain(key, value) {
+  return { dataset: { configKey: key }, type: "text", value };
+}
+
+function checkbox(key, checked) {
+  return { dataset: { configKey: key }, type: "checkbox", checked };
+}
+
+currentInputs = [
+  secret("OPENAI_API_KEY", { value: "autofilled-wq-password" }),
+  secret("WQ_PASSWORD", { editing: "true", value: "new-wq-password" }),
+  plain("OPENAI_MODEL", "gpt-5.5"),
+];
+assert.deepStrictEqual(collect(), {
+  WQ_PASSWORD: "new-wq-password",
+  OPENAI_MODEL: "gpt-5.5",
+});
+
+currentInputs = [
+  secret("OPENAI_API_KEY", { editing: "true", value: "new-openai-key" }),
+  secret("WQ_PASSWORD", { value: "autofilled-wq-password" }),
+];
+assert.deepStrictEqual(collect(), {
+  OPENAI_API_KEY: "new-openai-key",
+});
+
+currentInputs = [
+  secret("OPENAI_API_KEY", { clear: "true", value: "should-not-send" }),
+  secret("WQ_PASSWORD", { value: "should-not-send" }),
+];
+assert.deepStrictEqual(collect(), {
+  OPENAI_API_KEY: "__clear_secret__",
+});
+
+currentInputs = [
+  secret("OPENAI_API_KEY", { editing: "true", value: "" }),
+  checkbox("OPENAI_STORE", true),
+];
+assert.deepStrictEqual(collect(), {
+  OPENAI_STORE: true,
+});
+""",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [node, str(script), str(STATIC_DIR / "app.js")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def test_build_cli_command_for_generate_and_backtest():

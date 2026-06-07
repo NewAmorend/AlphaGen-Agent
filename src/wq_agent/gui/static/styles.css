@@ -482,7 +482,7 @@ button:disabled {
 
 .secret-wrap {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 54px 54px;
+  grid-template-columns: minmax(0, 1fr) 54px 54px 54px;
   gap: 6px;
 }
 
@@ -855,5 +855,13 @@ td.expr {
 
   .job-pill {
     min-width: 0;
+  }
+
+  .secret-wrap {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .secret-wrap input {
+    grid-column: 1 / -1;
   }
 }
