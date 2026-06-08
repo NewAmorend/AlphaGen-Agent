@@ -19,11 +19,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from dotenv import dotenv_values
+
 from ..config import Settings
 from ..db import Database
+from ..llm.factory import GLOBAL_MODEL_OPTIONS
+from ..llm.security import is_real_secret
 
 
 MASKED_SECRET = "********"
+CLEAR_SECRET_VALUE = "__clear_secret__"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 MAX_JOB_LOG_LINES = 500
 CANCEL_TIMEOUT_SECONDS = 3
@@ -35,6 +40,16 @@ SECRET_KEYS = {
     "DEEPSEEK_API_KEY",
     "EMBEDDING_API_KEY",
 }
+NUMBER_MINIMUMS = {
+    "LLM_MAX_TOKENS": 1,
+    "WQ_DELAY": 0,
+    "WQ_MAX_CONCURRENT": 1,
+}
+NUMBER_MAXIMUMS = {
+    "LLM_MAX_TOKENS": 200000,
+    "WQ_DELAY": 10,
+    "WQ_MAX_CONCURRENT": 20,
+}
 
 
 @dataclass(frozen=True)
@@ -44,19 +59,76 @@ class ConfigField:
     section: str
     secret: bool = False
     kind: str = "text"
+    options: tuple[str, ...] = ()
+    allow_custom: bool = False
 
 
 CONFIG_FIELDS: tuple[ConfigField, ...] = (
-    ConfigField("LLM_PROVIDER", "LLM Provider", "模型"),
+    ConfigField("LLM_PROVIDER", "模型供应商", "模型", kind="select", options=("openai", "kimi", "deepseek")),
+    ConfigField(
+        "LLM_MODEL",
+        "当前使用模型",
+        "模型",
+        kind="select",
+        options=(
+            "",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex",
+            "kimi-k2.6",
+            "deepseek-chat",
+            "deepseek-reasoner",
+        ),
+    ),
+    ConfigField("LLM_MAX_TOKENS", "最大输出 Token", "模型", kind="number"),
     ConfigField("OPENAI_BASE_URL", "OpenAI API 地址", "模型"),
     ConfigField("OPENAI_API_KEY", "OpenAI API 密钥", "模型", secret=True, kind="password"),
-    ConfigField("OPENAI_MODEL", "OpenAI 模型", "模型"),
-    ConfigField("OPENAI_WIRE_API", "回复模式", "模型"),
-    ConfigField("OPENAI_REASONING_EFFORT", "Reasoning Effort", "模型"),
+    ConfigField(
+        "OPENAI_MODEL",
+        "OpenAI 默认模型",
+        "模型",
+        kind="select",
+        options=("", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"),
+        allow_custom=True,
+    ),
+    ConfigField("OPENAI_WIRE_API", "回复模式", "模型", kind="select", options=("auto", "responses", "chat_completions")),
+    ConfigField(
+        "OPENAI_REASONING_EFFORT",
+        "Reasoning Effort",
+        "模型",
+        kind="select",
+        options=("", "none", "minimal", "low", "medium", "high", "xhigh"),
+    ),
     ConfigField("OPENAI_STORE", "响应存储", "模型", kind="boolean"),
     ConfigField("OPENAI_ALLOW_INSECURE_HTTP", "允许远程 HTTP", "模型", kind="boolean"),
-    ConfigField("OPENAI_CHAT_TOKEN_PARAM", "Chat Token 参数", "模型"),
+    ConfigField(
+        "OPENAI_CHAT_TOKEN_PARAM",
+        "Chat Token 参数",
+        "模型",
+        kind="select",
+        options=("max_tokens", "max_completion_tokens"),
+    ),
     ConfigField("OPENAI_CHAT_REASONING_EFFORT", "Chat Reasoning 参数", "模型", kind="boolean"),
+    ConfigField("KIMI_API_KEY", "Kimi API 密钥", "模型", secret=True, kind="password"),
+    ConfigField("KIMI_BASE_URL", "Kimi API 地址", "模型"),
+    ConfigField(
+        "KIMI_MODEL",
+        "Kimi 默认模型",
+        "模型",
+        kind="select",
+        options=("", "kimi-k2.6"),
+        allow_custom=True,
+    ),
+    ConfigField("DEEPSEEK_API_KEY", "DeepSeek API 密钥", "模型", secret=True, kind="password"),
+    ConfigField("DEEPSEEK_BASE_URL", "DeepSeek API 地址", "模型"),
+    ConfigField(
+        "DEEPSEEK_MODEL",
+        "DeepSeek 默认模型",
+        "模型",
+        kind="select",
+        options=("", "deepseek-chat", "deepseek-reasoner"),
+        allow_custom=True,
+    ),
     ConfigField("WQ_USERNAME", "WQ 用户名", "WorldQuant"),
     ConfigField("WQ_PASSWORD", "WQ 密码", "WorldQuant", secret=True, kind="password"),
     ConfigField("WQ_REGION", "Region", "WorldQuant"),
@@ -85,17 +157,24 @@ class EnvManager:
         values = self._read_values()
         fields = []
         for field_def in CONFIG_FIELDS:
-            raw_value = values.get(field_def.key, "")
-            has_value = bool(raw_value)
+            raw_value = values.get(field_def.key)
+            if field_def.secret:
+                has_value = is_real_secret(raw_value)
+                value = MASKED_SECRET if has_value else ""
+            else:
+                value = raw_value if raw_value is not None else _settings_default(field_def.key)
+                has_value = bool(value)
             fields.append(
                 {
                     "key": field_def.key,
                     "label": field_def.label,
                     "section": field_def.section,
                     "kind": field_def.kind,
+                    "options": list(field_def.options),
+                    "allow_custom": field_def.allow_custom,
                     "secret": field_def.secret,
                     "has_value": has_value,
-                    "value": MASKED_SECRET if field_def.secret and has_value else raw_value,
+                    "value": value,
                 }
             )
         return {
@@ -106,10 +185,11 @@ class EnvManager:
 
     def save(self, updates: dict[str, Any]) -> dict[str, Any]:
         self.ensure_env()
-        lines = self.env_path.read_text(encoding="utf-8").splitlines()
+        lines = self.env_path.read_text(encoding="utf-8-sig").splitlines()
         seen_keys: set[str] = set()
 
         normalized: dict[str, str] = {}
+        raw_normalized: dict[str, str] = {}
         for key, value in updates.items():
             field_def = CONFIG_FIELD_MAP.get(key)
             if not field_def:
@@ -117,11 +197,19 @@ class EnvManager:
             text = self._normalize_value(value)
             if field_def.secret and text in {"", MASKED_SECRET}:
                 continue
+            if field_def.secret and text == CLEAR_SECRET_VALUE:
+                normalized[key] = ""
+                raw_normalized[key] = ""
+                continue
+            text = _validate_config_value(field_def, text)
+            raw_normalized[key] = text
             normalized[key] = self._quote_value(text)
+
+        _validate_config_updates(self._read_values(), raw_normalized)
 
         updated_lines: list[str] = []
         for line in lines:
-            match = ENV_KEY_RE.match(line.strip())
+            match = ENV_KEY_RE.match(_clean_env_line(line).strip())
             if not match:
                 updated_lines.append(line)
                 continue
@@ -150,19 +238,17 @@ class EnvManager:
         if self.env_path.exists():
             return
         if self.example_path.exists():
-            self.env_path.write_text(self.example_path.read_text(encoding="utf-8"), encoding="utf-8")
+            self.env_path.write_text(
+                self.example_path.read_text(encoding="utf-8-sig"), encoding="utf-8"
+            )
         else:
             self.env_path.write_text("", encoding="utf-8")
 
     def _read_values(self) -> dict[str, str]:
-        values: dict[str, str] = {}
         if not self.env_path.exists():
-            return values
-        for line in self.env_path.read_text(encoding="utf-8").splitlines():
-            match = ENV_KEY_RE.match(line.strip())
-            if match:
-                values[match.group(1)] = match.group(2)
-        return values
+            return {}
+        values = dotenv_values(self.env_path, encoding="utf-8-sig")
+        return {_clean_env_key(key): "" if value is None else value for key, value in values.items()}
 
     @staticmethod
     def _normalize_value(value: Any) -> str:
@@ -183,8 +269,8 @@ class EnvManager:
         values = self._read_values()
         secrets_to_hide = []
         for key in SECRET_KEYS:
-            value = values.get(key, "").strip().strip('"').strip("'")
-            if value and value != MASKED_SECRET and not value.lower().startswith("your_"):
+            value = values.get(key, "")
+            if is_real_secret(value):
                 secrets_to_hide.append(value)
         return secrets_to_hide
 
@@ -608,6 +694,77 @@ def _bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _validate_config_value(field_def: ConfigField, text: str) -> str:
+    if field_def.secret:
+        if not is_real_secret(text):
+            raise ValueError(f"{field_def.key} must be a real secret or left blank")
+        return text
+
+    if field_def.kind == "select":
+        if field_def.allow_custom and text:
+            return text
+        if text not in field_def.options:
+            allowed = ", ".join(option or "<blank>" for option in field_def.options)
+            raise ValueError(f"{field_def.key} must be one of: {allowed}")
+        return text
+
+    if field_def.kind == "boolean":
+        normalized = text.lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return "true"
+        if normalized in {"0", "false", "no", "off"}:
+            return "false"
+        raise ValueError(f"{field_def.key} must be true or false")
+
+    if field_def.kind == "number":
+        try:
+            value = int(text)
+        except ValueError as exc:
+            raise ValueError(f"{field_def.key} must be a number") from exc
+        minimum = NUMBER_MINIMUMS.get(field_def.key, 0)
+        if value < minimum:
+            raise ValueError(f"{field_def.key} must be {minimum} or greater")
+        maximum = NUMBER_MAXIMUMS.get(field_def.key)
+        if maximum is not None and value > maximum:
+            raise ValueError(f"{field_def.key} must be {maximum} or less")
+        return str(value)
+
+    return text
+
+
+def _validate_config_updates(current_values: dict[str, str], updates: dict[str, str]) -> None:
+    values = {**current_values, **updates}
+    provider = (values.get("LLM_PROVIDER") or _settings_default("LLM_PROVIDER")).strip().lower()
+    model = (values.get("LLM_MODEL") or "").strip()
+    if not model:
+        return
+    allowed = GLOBAL_MODEL_OPTIONS.get(provider)
+    if allowed and model not in allowed:
+        raise ValueError(
+            f"LLM_MODEL={model!r} is not valid for LLM_PROVIDER={provider!r}. "
+            f"Use one of: {', '.join(allowed)}; or leave LLM_MODEL blank and set "
+            f"{provider.upper()}_MODEL instead."
+        )
+
+
+def _clean_env_key(key: str) -> str:
+    return key.lstrip("\ufeff")
+
+
+def _clean_env_line(line: str) -> str:
+    return line.lstrip("\ufeff")
+
+
+def _settings_default(key: str) -> str:
+    field = Settings.model_fields.get(key)
+    if not field:
+        return ""
+    value = field.default
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return "" if value is None else str(value)
 
 
 def _now() -> str:

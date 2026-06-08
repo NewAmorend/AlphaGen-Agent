@@ -7,7 +7,12 @@ import time
 import urllib.error
 import urllib.request
 
+import pytest
+
+from wq_agent.config import Settings
 from wq_agent.gui.server import (
+    CLEAR_SECRET_VALUE,
+    CONFIG_FIELDS,
     MASKED_SECRET,
     MAX_JOB_LOG_LINES,
     EnvManager,
@@ -20,6 +25,7 @@ from wq_agent.gui.server import (
     _redact,
     STATIC_DIR,
 )
+from wq_agent.llm.factory import GLOBAL_MODEL_OPTIONS
 from http.server import ThreadingHTTPServer
 
 
@@ -67,6 +73,67 @@ def test_env_snapshot_initializes_from_example_and_masks_secret(tmp_path):
     assert values["WQ_PASSWORD"]["value"] == MASKED_SECRET
 
 
+def test_env_snapshot_uses_runtime_defaults_and_ignores_placeholder_secrets(tmp_path):
+    (tmp_path / ".env.example").write_text(
+        "\n".join(
+            [
+                "LLM_PROVIDER=deepseek",
+                "DEEPSEEK_API_KEY=your_deepseek_key",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manager = EnvManager(tmp_path)
+    snapshot = manager.snapshot()
+    values = {field["key"]: field for field in snapshot["fields"]}
+
+    assert values["DEEPSEEK_API_KEY"]["value"] == ""
+    assert values["DEEPSEEK_API_KEY"]["has_value"] is False
+    assert values["DEEPSEEK_BASE_URL"]["value"] == "https://api.deepseek.com/v1/chat/completions"
+    assert values["DEEPSEEK_MODEL"]["value"] == "deepseek-chat"
+    assert values["LLM_MAX_TOKENS"]["value"] == "32768"
+
+
+def test_env_snapshot_treats_common_placeholder_secrets_as_empty(tmp_path):
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=change_me",
+                "KIMI_API_KEY=placeholder",
+                "DEEPSEEK_API_KEY=todo-fill-me",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    values = {field["key"]: field for field in EnvManager(tmp_path).snapshot()["fields"]}
+
+    assert values["OPENAI_API_KEY"]["has_value"] is False
+    assert values["KIMI_API_KEY"]["has_value"] is False
+    assert values["DEEPSEEK_API_KEY"]["has_value"] is False
+
+
+def test_env_snapshot_and_settings_accept_utf8_bom_env_files(tmp_path):
+    (tmp_path / ".env.example").write_text(
+        "LLM_PROVIDER=deepseek\nOPENAI_MODEL=gpt-5.4\n",
+        encoding="utf-8-sig",
+    )
+
+    manager = EnvManager(tmp_path)
+    snapshot = manager.snapshot()
+    values = {field["key"]: field for field in snapshot["fields"]}
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert values["LLM_PROVIDER"]["value"] == "deepseek"
+    assert not env_text.startswith("\ufeff")
+
+    settings = Settings(_env_file=str(tmp_path / ".env"))
+    assert settings.LLM_PROVIDER == "deepseek"
+
+
 def test_env_save_preserves_masked_secret_and_updates_plain_fields(tmp_path):
     (tmp_path / ".env").write_text(
         "OPENAI_API_KEY=secret-value\nOPENAI_MODEL=gpt-5.4\nWQ_USERNAME=alice\n",
@@ -88,6 +155,17 @@ def test_env_save_preserves_masked_secret_and_updates_plain_fields(tmp_path):
     assert "WQ_USERNAME=bob" in text
 
 
+def test_env_save_can_clear_secret_explicitly(tmp_path):
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=secret-value\n", encoding="utf-8")
+
+    snapshot = EnvManager(tmp_path).save({"OPENAI_API_KEY": CLEAR_SECRET_VALUE})
+    values = {field["key"]: field for field in snapshot["fields"]}
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert "OPENAI_API_KEY=" in text
+    assert values["OPENAI_API_KEY"]["has_value"] is False
+
+
 def test_env_save_deduplicates_keys_and_quotes_special_values(tmp_path):
     (tmp_path / ".env").write_text(
         "OPENAI_MODEL=old\nOPENAI_MODEL=older\nOPENAI_BASE_URL=https://api.openai.com/v1\n",
@@ -101,6 +179,45 @@ def test_env_save_deduplicates_keys_and_quotes_special_values(tmp_path):
     assert text.count("OPENAI_MODEL=") == 1
     assert 'OPENAI_MODEL="gpt custom"' in text
     assert "OPENAI_BASE_URL=https://proxy.example/v1" in text
+
+
+def test_env_save_rejects_invalid_select_number_and_provider_model(tmp_path):
+    (tmp_path / ".env").write_text("LLM_PROVIDER=deepseek\nLLM_MODEL=\n", encoding="utf-8")
+    manager = EnvManager(tmp_path)
+
+    with pytest.raises(ValueError, match="OPENAI_WIRE_API"):
+        manager.save({"OPENAI_WIRE_API": "bogus"})
+
+    with pytest.raises(ValueError, match="LLM_MAX_TOKENS"):
+        manager.save({"LLM_MAX_TOKENS": "0"})
+
+    with pytest.raises(ValueError, match="WQ_MAX_CONCURRENT"):
+        manager.save({"WQ_MAX_CONCURRENT": "999"})
+
+    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        manager.save({"OPENAI_API_KEY": "placeholder"})
+
+    with pytest.raises(ValueError, match="LLM_MODEL"):
+        manager.save({"LLM_MODEL": "gpt-5.4"})
+
+    manager.save({"LLM_MODEL": "deepseek-reasoner"})
+    assert "LLM_MODEL=deepseek-reasoner" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_config_model_options_stay_in_sync_with_factory_and_frontend():
+    field_map = {field.key: field for field in CONFIG_FIELDS}
+    expected_global = {""}
+    for models in GLOBAL_MODEL_OPTIONS.values():
+        expected_global.update(models)
+
+    assert set(field_map["LLM_MODEL"].options) == expected_global
+    assert set(field_map["LLM_PROVIDER"].options) == set(GLOBAL_MODEL_OPTIONS)
+
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    for provider, models in GLOBAL_MODEL_OPTIONS.items():
+        assert provider in app_js
+        for model in models:
+            assert model in app_js
 
 
 def test_build_cli_command_for_generate_and_backtest():

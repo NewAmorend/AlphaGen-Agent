@@ -4,6 +4,12 @@ const state = {
   pollTimer: null,
   csrfToken: "",
 };
+const CLEAR_SECRET_VALUE = "__clear_secret__";
+const GLOBAL_MODEL_OPTIONS = {
+  openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
+  kimi: ["kimi-k2.6"],
+  deepseek: ["deepseek-chat", "deepseek-reasoner"],
+};
 
 const $ = (id) => document.getElementById(id);
 
@@ -131,18 +137,51 @@ function renderConfig(fields) {
 
 function configField(field) {
   const label = document.createElement("label");
-  label.textContent = field.label;
-  const input = document.createElement("input");
-  input.dataset.configKey = field.key;
-  input.value = field.value || "";
-  input.placeholder = field.secret && field.has_value ? "已设置，留空保持不变" : "";
+  label.className = "config-field";
+  const labelText = document.createElement("span");
+  labelText.className = "config-label";
+  labelText.textContent = field.label;
 
   if (field.kind === "boolean") {
+    label.classList.add("config-switch-field");
+    const input = document.createElement("input");
     input.type = "checkbox";
+    input.dataset.configKey = field.key;
     input.checked = String(field.value).toLowerCase() === "true";
+    input.addEventListener("change", refreshConfigStatusFromForm);
+    const switchEl = document.createElement("span");
+    switchEl.className = "switch";
+    switchEl.setAttribute("aria-hidden", "true");
+    label.appendChild(labelText);
+    label.appendChild(input);
+    label.appendChild(switchEl);
+    return label;
+  }
+
+  const input = field.kind === "select" ? document.createElement("select") : document.createElement("input");
+  input.dataset.configKey = field.key;
+  input.addEventListener(field.kind === "select" ? "change" : "input", refreshConfigStatusFromForm);
+
+  if (field.kind === "select") {
+    const options = Array.isArray(field.options) ? [...field.options] : [];
+    const current = field.value || "";
+    if (current && !options.includes(current)) {
+      options.push(current);
+    }
+    options.forEach((option) => {
+      const optionEl = document.createElement("option");
+      optionEl.value = option;
+      optionEl.textContent = option || "使用供应商默认";
+      input.appendChild(optionEl);
+    });
+    input.value = current;
   } else {
+    input.value = field.secret ? "" : field.value || "";
+    input.placeholder = field.secret && field.has_value ? "已设置，留空保持不变" : "";
     input.type = field.secret ? "password" : field.kind === "number" ? "number" : "text";
   }
+
+  label.appendChild(labelText);
 
   if (field.secret) {
     const wrap = document.createElement("div");
@@ -154,8 +193,22 @@ function configField(field) {
       input.type = input.type === "password" ? "text" : "password";
       reveal.textContent = input.type === "password" ? "显示" : "隐藏";
     });
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.textContent = "清除";
+    clear.disabled = !field.has_value;
+    clear.addEventListener("click", () => {
+      const active = input.dataset.clearSecret !== "true";
+      input.dataset.clearSecret = active ? "true" : "false";
+      input.disabled = active;
+      reveal.disabled = active;
+      clear.textContent = active ? "保留" : "清除";
+      clear.classList.toggle("danger-inline", active);
+      refreshConfigStatusFromForm();
+    });
     wrap.appendChild(input);
     wrap.appendChild(reveal);
+    wrap.appendChild(clear);
     label.appendChild(wrap);
   } else {
     label.appendChild(input);
@@ -168,7 +221,9 @@ async function saveConfig() {
   const values = {};
   document.querySelectorAll("[data-config-key]").forEach((input) => {
     const key = input.dataset.configKey;
-    if (input.type === "checkbox") {
+    if (input.dataset.clearSecret === "true") {
+      values[key] = CLEAR_SECRET_VALUE;
+    } else if (input.type === "checkbox") {
       values[key] = input.checked;
     } else {
       values[key] = input.value;
@@ -191,9 +246,21 @@ async function saveConfig() {
 
 function renderConfigStatus(fields) {
   const byKey = Object.fromEntries(fields.map((field) => [field.key, field]));
+  const provider = String(byKey.LLM_PROVIDER?.value || "openai").toLowerCase();
+  const providerKey = {
+    openai: "OPENAI_API_KEY",
+    kimi: "KIMI_API_KEY",
+    deepseek: "DEEPSEEK_API_KEY",
+  }[provider] || "OPENAI_API_KEY";
+  const globalModel = byKey.LLM_MODEL?.value || "";
+  const globalModelValid = !globalModel || (GLOBAL_MODEL_OPTIONS[provider] || []).includes(globalModel);
+  const model = globalModel
+    ? (globalModelValid ? globalModel : "")
+    : byKey[`${provider.toUpperCase()}_MODEL`]?.value || byKey.OPENAI_MODEL?.value;
   const checks = [
-    ["OpenAI Key", Boolean(byKey.OPENAI_API_KEY?.has_value)],
-    ["OpenAI 模型", Boolean(byKey.OPENAI_MODEL?.value)],
+    ["模型供应商", Boolean(provider)],
+    ["模型密钥", Boolean(byKey[providerKey]?.has_value)],
+    ["当前模型", globalModelValid && Boolean(model)],
     ["WQ 账号", Boolean(byKey.WQ_USERNAME?.value && byKey.WQ_PASSWORD?.has_value)],
     ["正式提交", false],
   ];
@@ -202,6 +269,33 @@ function renderConfigStatus(fields) {
     const dot = ok ? "dot ok" : "dot";
     return `<div class="status-item"><span><i class="${dot}"></i>${name}</span><strong>${label}</strong></div>`;
   }).join("");
+}
+
+function refreshConfigStatusFromForm() {
+  if (!state.configFields.length) {
+    return;
+  }
+  const liveFields = state.configFields.map((field) => {
+    const input = document.querySelector(`[data-config-key="${field.key}"]`);
+    if (!input) {
+      return field;
+    }
+    const next = { ...field };
+    if (field.secret) {
+      if (input.dataset.clearSecret === "true") {
+        next.has_value = false;
+        next.value = "";
+      } else {
+        next.has_value = Boolean(input.value) || Boolean(field.has_value);
+      }
+    } else if (input.type === "checkbox") {
+      next.value = String(input.checked);
+    } else {
+      next.value = input.value;
+    }
+    return next;
+  });
+  renderConfigStatus(liveFields);
 }
 
 async function startTask(action, payload) {
