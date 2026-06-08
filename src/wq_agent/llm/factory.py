@@ -8,7 +8,7 @@ from .openai import OpenAIProvider
 
 
 GLOBAL_MODEL_OPTIONS: dict[str, tuple[str, ...]] = {
-    "openai": ("gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"),
+    "openai": ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"),
     "kimi": ("kimi-k2.6",),
     "deepseek": ("deepseek-chat", "deepseek-reasoner"),
 }
@@ -99,6 +99,8 @@ def _int_setting(settings, key: str) -> int:
 def _provider_model_override(provider: str, model: str) -> str:
     if not model:
         return ""
+    if provider == "openai":
+        return model
     allowed = GLOBAL_MODEL_OPTIONS.get(provider)
     if allowed and model not in allowed:
         raise ValueError(
