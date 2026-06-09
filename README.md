@@ -1,5 +1,9 @@
 # wq-agent
 
+[![CI](https://github.com/NewAmorend/wq-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/NewAmorend/wq-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+
 WorldQuant Alpha 生成与回测 Agent Harness。
 
 通过 LLM（Kimi / DeepSeek）、模板与因子挖掘三种策略批量生成 alpha 表达式，调用 WorldQuant Brain Simulator 进行回测，并按 fitness / Sharpe / turnover / returns 阈值自动评级、入库 SQLite。
@@ -271,10 +275,28 @@ EMBEDDING_DIM=2048
 - 不要公开：`.env`、`wq_agent.db`、`*.log`、`.claude/`、`.codex/`、`private_wiki/`、`wiki/entries/`、`wiki/lessons/`。
 - 重新开 public 前建议跑：`git ls-files | rg '^(private_wiki/|wiki/entries/|wiki/lessons/|\.claude/|\.codex/|\.env$)|\.(db|log)$'`，应无输出。
 
+## 开源协作流程
+
+本仓库现在按常规开源项目流程维护：
+
+- 贡献入口：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- 安全披露：[SECURITY.md](SECURITY.md)
+- 治理模型：[GOVERNANCE.md](GOVERNANCE.md)
+- 支持信息：[SUPPORT.md](SUPPORT.md)
+- 变更记录：[CHANGELOG.md](CHANGELOG.md)
+- 完整流程：[docs/OPEN_SOURCE_PROCESS.md](docs/OPEN_SOURCE_PROCESS.md)
+
+GitHub 侧包含 issue 模板、PR 模板、CI、tag release 构建和 Dependabot 配置。普通贡献流程是：开 issue 或关联现有 issue -> 从 `main` 建分支 -> 补测试/文档 -> 跑本地检查 -> 开 PR -> CI 通过后由 maintainer review/merge。
 
 ## 开发
 
 ```bash
 ruff check src tests
 pytest
+python -m build
 ```
+
+## 许可证
+
+[MIT](LICENSE) © wq-agent contributors
