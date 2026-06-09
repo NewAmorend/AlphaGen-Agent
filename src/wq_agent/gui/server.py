@@ -35,10 +35,8 @@ CANCEL_TIMEOUT_SECONDS = 3
 STATIC_DIR = Path(__file__).with_name("static")
 SECRET_KEYS = {
     "LLM_API_KEY",
-    "OPENAI_API_KEY",
     "WQ_PASSWORD",
     "KIMI_API_KEY",
-    "DEEPSEEK_API_KEY",
     "EMBEDDING_API_KEY",
 }
 NUMBER_MINIMUMS = {

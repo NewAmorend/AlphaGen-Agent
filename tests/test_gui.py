@@ -101,8 +101,7 @@ def test_env_snapshot_treats_common_placeholder_secrets_as_empty(tmp_path):
         "\n".join(
             [
                 "LLM_API_KEY=change_me",
-                "KIMI_API_KEY=placeholder",
-                "DEEPSEEK_API_KEY=todo-fill-me",
+                "UNUSED_API_KEY=placeholder",
             ]
         )
         + "\n",
@@ -112,8 +111,7 @@ def test_env_snapshot_treats_common_placeholder_secrets_as_empty(tmp_path):
     values = {field["key"]: field for field in EnvManager(tmp_path).snapshot()["fields"]}
 
     assert values["LLM_API_KEY"]["has_value"] is False
-    assert "KIMI_API_KEY" not in values
-    assert "DEEPSEEK_API_KEY" not in values
+    assert "UNUSED_API_KEY" not in values
 
 
 def test_env_snapshot_and_settings_accept_utf8_bom_env_files(tmp_path):
@@ -309,7 +307,7 @@ def test_log_redaction_masks_known_secret_values():
 def test_log_redaction_masks_json_and_openai_key_patterns():
     output = _redact(
         '{"api_key": "sk-proj-1234567890abcdef"} token="raw-token" '
-        "OPENAI_API_KEY=sk-test-1234567890abcdef",
+        "LLM_API_KEY=sk-test-1234567890abcdef",
         [],
     )
 
