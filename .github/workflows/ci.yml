@@ -36,6 +36,9 @@ jobs:
       - name: Lint
         run: ruff check src tests
 
+      - name: Open-source preflight
+        run: python scripts/open_source_preflight.py
+
       - name: Test
         run: pytest
 

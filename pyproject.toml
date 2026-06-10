@@ -70,6 +70,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/wq_agent"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "wq_agent/resources/templates"
+".env.example" = "wq_agent/resources/.env.example"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

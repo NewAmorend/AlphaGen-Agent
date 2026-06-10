@@ -7,24 +7,24 @@ This document describes the normal project flow for wq-agent.
 Public:
 
 - `src/`, `tests/`, `templates/`, `docs/`
-- `wiki/concepts/`, `wiki/operators/`, `wiki/fields/`, `wiki/patterns/`,
-  `wiki/recipes/`, `wiki/papers/`, `wiki/datasets/`
 - `.env.example`, `README.md`, and project governance files
+- `wiki/.gitkeep` only, so the public repository has an empty wiki workspace
 
 Private:
 
 - `.env`, credentials, tokens, session data
 - `wq_agent.db`, generated SQLite files, and logs
-- `private_wiki/`, `wiki/entries/`, `wiki/lessons/`
+- `wiki/` contents, including imported docs, dictionaries, benches, papers, entries, and lessons
+- `private_wiki/`
 - Local agent/editor folders such as `.claude/` and `.codex/`
 
-Before pushing to a public remote:
+Before pushing to a public remote or creating a release:
 
 ```bash
-git ls-files | rg '^(private_wiki/|wiki/entries/|wiki/lessons/|\.claude/|\.codex/|\.env$)|\.(db|log)$'
+python scripts/open_source_preflight.py
 ```
 
-The command should print nothing.
+The check fails if private/generated files are tracked, required governance files are missing, untracked files remain, public wiki content is tracked, or text files contain obvious secret/submission-number traces. For local development only, `--allow-untracked` can be used while work is still in progress.
 
 ## Issue Triage
 
@@ -78,8 +78,8 @@ Preferred merge method: squash merge.
    git push origin vX.Y.Z
    ```
 
-5. Let the release workflow build artifacts.
-6. Create GitHub release notes from the changelog.
+5. Let the release workflow build artifacts and create the GitHub Release.
+6. Review the generated release notes and attach any maintainer notes from the changelog.
 7. Publish to package indexes only after artifacts and smoke tests pass.
 
 Suggested smoke test:
@@ -89,6 +89,8 @@ python -m venv /tmp/wq-agent-smoke
 source /tmp/wq-agent-smoke/bin/activate
 pip install dist/wq_agent-*.whl
 wq-agent --help
+mkdir /tmp/wq-agent-workspace
+wq-agent init /tmp/wq-agent-workspace
 ```
 
 ## Security Flow
