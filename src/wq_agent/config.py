@@ -13,18 +13,22 @@ class Settings(BaseSettings):
     WQ_PASTEURIZATION: str = "ON"
     WQ_MAX_CONCURRENT: int = 5
 
-    LLM_PROVIDER: str = "kimi"
+    LLM_PROVIDER: str = "openai_compatible"
+    LLM_BASE_URL: str = "https://api.openai.com/v1"
+    LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
+    LLM_WIRE_API: str = "auto"
+    LLM_REASONING_EFFORT: str = ""
+    LLM_STORE: bool = False
+    LLM_ALLOW_INSECURE_HTTP: bool = False
+    LLM_CHAT_TOKEN_PARAM: str = "max_tokens"
+    LLM_CHAT_REASONING_EFFORT: bool = False
     LLM_MAX_TOKENS: int = 32768
     # 主生成的采样温度。偏低（0.3）易产出同质表达式；调高增大结构/字段多样性，
     # 是最便宜的"减重复"旋钮。refine 另用更高温度（0.55）做变体探索。
     LLM_GEN_TEMPERATURE: float = 0.5
+    ANTHROPIC_VERSION: str = "2023-06-01"
     KIMI_API_KEY: str = ""
-    KIMI_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
-    KIMI_MODEL: str = "kimi-k2.6"
-    DEEPSEEK_API_KEY: str = ""
-    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1/chat/completions"
-    DEEPSEEK_MODEL: str = "deepseek-chat"
 
     # WQ Brain 官方提交阈值（USA TOP3000 delay=1，截至 2026-05）。
     # 评估器优先使用 WQ 自带的 checks 列表；下面这组只在 checks 缺失时作为 fallback。
@@ -63,7 +67,7 @@ class Settings(BaseSettings):
     # 本地模型（pip install fastembed 后启用）；候选见 fastembed.TextEmbedding.list_supported_models()
     LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8-sig", "extra": "ignore"}
 
 
 @lru_cache
