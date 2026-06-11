@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from importlib import resources
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +23,87 @@ app = typer.Typer(
 wiki_app = typer.Typer(name="wiki", help="Quant Wiki maintenance commands", add_completion=False)
 app.add_typer(wiki_app, name="wiki")
 console = Console()
+
+
+def _resource_path(name: str):
+    packaged = resources.files("wq_agent").joinpath("resources", name)
+    if packaged.is_dir() or packaged.is_file():
+        return packaged
+
+    # Editable/source checkout fallback. In a wheel, hatch maps these files under
+    # wq_agent/resources; in a checkout, they still live at the repository root.
+    source_root = Path(__file__).resolve().parents[2]
+    fallback = source_root / name
+    if fallback.exists():
+        return fallback
+    return packaged
+
+
+def _copy_resource_tree(source, destination: Path, overwrite: bool = False) -> tuple[int, int]:
+    copied = 0
+    skipped = 0
+
+    if source.is_file():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() and not overwrite:
+            return 0, 1
+        destination.write_bytes(source.read_bytes())
+        return 1, 0
+
+    for item in source.iterdir():
+        target = destination / item.name
+        if item.is_dir():
+            child_copied, child_skipped = _copy_resource_tree(item, target, overwrite)
+            copied += child_copied
+            skipped += child_skipped
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() and not overwrite:
+                skipped += 1
+                continue
+            target.write_bytes(item.read_bytes())
+            copied += 1
+
+    return copied, skipped
+
+
+@app.command(name="init")
+def init_project(
+    target: Path = typer.Argument(Path("."), help="Directory to initialize"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing resource files"),
+    with_env: bool = typer.Option(True, "--with-env/--no-env", help="Copy .env.example"),
+):
+    """Initialize public resources for a new working directory."""
+    target = target.resolve()
+    target.mkdir(parents=True, exist_ok=True)
+
+    wiki_dir = target / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    console.print(f"[green]wiki[/green]: ready at {wiki_dir} (empty by default)")
+
+    total_copied = 0
+    total_skipped = 0
+    source = _resource_path("templates")
+    if not source.is_dir():
+        console.print("[red]Missing packaged resource: templates[/red]")
+        raise typer.Exit(1)
+    copied, skipped = _copy_resource_tree(source, target / "templates", overwrite=overwrite)
+    total_copied += copied
+    total_skipped += skipped
+    console.print(f"[green]templates[/green]: copied {copied}, skipped {skipped}")
+
+    if with_env:
+        source = _resource_path(".env.example")
+        if source.is_file():
+            copied, skipped = _copy_resource_tree(source, target / ".env.example", overwrite=overwrite)
+            total_copied += copied
+            total_skipped += skipped
+            console.print(f"[green].env.example[/green]: copied {copied}, skipped {skipped}")
+
+    console.print(
+        f"[bold green]Initialized {target}[/bold green] "
+        f"([cyan]{total_copied}[/cyan] copied, [yellow]{total_skipped}[/yellow] skipped)"
+    )
 
 
 def _setup_logging(verbose: bool = False) -> None:

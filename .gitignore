@@ -10,8 +10,8 @@ hopeful_alphas.json
 dist/
 build/
 *.egg-info/
-wiki/dictionary/auto.txt
-wiki/graph_index.json
+wiki/*
+!wiki/.gitkeep
 .claude/
 .codex/
 wiki/entries/

@@ -1,8 +1,14 @@
 # wq-agent
 
+[![CI](https://github.com/NewAmorend/wq-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/NewAmorend/wq-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+
 WorldQuant Alpha 生成与回测 Agent Harness。
 
 通过 LLM（OpenAI-compatible 或 Anthropic 协议端点）、模板与因子挖掘三种策略批量生成 alpha 表达式，调用 WorldQuant Brain Simulator 进行回测，并按 fitness / Sharpe / turnover / returns 阈值自动评级、入库 SQLite。
+
+> 本项目用于研究自动化与工程实验，不构成投资建议。使用者需要自行确认 WorldQuant Brain、数据源、LLM 服务和研究内容的使用条款与发布权限。
 
 ## 功能特性
 
@@ -25,6 +31,14 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+在新的研究工作区初始化运行所需资源：
+
+```bash
+wq-agent init
+```
+
+该命令会创建空的 `wiki/` 目录，并复制 `templates/` 和 `.env.example` 到当前目录；已有模板/配置文件默认跳过，如需覆盖可加 `--overwrite`。公开仓不预置 wiki 内容，避免把第三方资料或私人研究记录混入发行包。
 
 ## 配置
 
@@ -164,22 +178,16 @@ src/wq_agent/
         └── hybrid.py   # priority + 加权 RRF + 图扩展
 templates/
 └── alpha_templates.yaml
-wiki/                   # 可公开知识内容（人写：理论、字段、算子、论文、recipes）
-├── SCHEMA.md
-├── concepts/  operators/  fields/  patterns/  recipes/  papers/
-├── bench/
-└── dictionary/
-    ├── base.txt
-    └── synonyms.yaml
+wiki/                   # 本地知识库工作区；公开仓默认为空，按需导入/沉淀
 private_wiki/           # 私有自动沉淀：真实 alpha entries / lessons，默认 gitignore
 ```
 
 ## Quant Wiki（三通道混合检索）
 
-参考 [cnblogs.com/jtuki/p/19861920](https://www.cnblogs.com/jtuki/p/19861920) 的 AI Agent 结构化知识层架构，给 alpha 生成提供领域知识 + 历史教训。当前内容层分为 `concepts/`（理论）、`fields/`（字段语义）、`patterns/`（失败模式）、`recipes/`（构造手册）和私有 `entries/lessons/`（自动沉淀）。架构：
+参考 [cnblogs.com/jtuki/p/19861920](https://www.cnblogs.com/jtuki/p/19861920) 的 AI Agent 结构化知识层架构，给 alpha 生成提供领域知识 + 历史教训。公开仓默认不附带 wiki 内容；`wiki/` 是你的本地知识库工作区，可以通过导入命令、手写 markdown 或自动沉淀逐步填充。架构：
 
-- **存储**：`wiki/` 下放可公开 markdown；`private_wiki/` 下放真实自动沉淀记录。二者都会被生成侧检索，只有 `private_wiki/` 默认 gitignore。YAML frontmatter + `[[wikilinks]]` 规范见 [wiki/SCHEMA.md](wiki/SCHEMA.md)
-- **词法通道**：FMM 分词（`wiki/dictionary/base.txt` + `synonyms.yaml`）+ 页面正文/slug/tags/frontmatter 元数据 + IDF/Coverage 评分，纯 `0.6 * 加权 IDF 覆盖率 + 0.25 * 原始词条覆盖率`（上限 0.85）
+- **存储**：`wiki/` 放本地可检索 markdown；`private_wiki/` 放真实 alpha entries / lessons。两者都默认 gitignore，不随公开发行包发布，避免泄露私人研究或第三方资料。
+- **词法通道**：FMM 分词（可选 `wiki/dictionary/base.txt` + `synonyms.yaml`）+ 页面正文/slug/tags/frontmatter 元数据 + IDF/Coverage 评分，纯 `0.6 * 加权 IDF 覆盖率 + 0.25 * 原始词条覆盖率`（上限 0.85）
 - **向量通道**：sqlite-vec 表 + Volcengine / zhipu Embedding，余弦排名
 - **图通道**：NetworkX 构建 wikilink + 共享标签 + 共享来源边，Louvain 社区检测 + PageRank，邻居扩展
 - **融合**：所有原始词条命中或明确命中页面身份（slug/path/operator_name/field_id/dataset_id）→ priority；其余走加权 RRF（`k=60, grep:vec=7:3`）+ 图扩展
@@ -194,10 +202,10 @@ wq-agent wiki index --incremental  # 仅 hash 变化的页重新嵌入
 # 调试检索
 wq-agent wiki search "动量 反转" -k 5
 
-# 离线评估检索质量（默认读取 wiki/bench/retrieval_golden.yml）
+# 离线评估检索质量（先准备 wiki/bench/retrieval_golden.yml；否则使用内置示例查询）
 wq-agent wiki eval --top-k 5
 
-# 开发回归门：低于阈值会以 exit code 2 失败
+# 本地回归门：低于阈值会以 exit code 2 失败
 wq-agent wiki eval --top-k 5 --min-hit-at-k 0.8 --min-mrr 0.6
 
 # 输出 JSON，便于 CI 或脚本记录趋势
@@ -252,8 +260,6 @@ wq-agent wiki import-paper --manual \
     --abstract "We document momentum..."
 ```
 
-`wiki/papers/` 已预置 21 篇经典量化论文种子（Jegadeesh-Titman 92、Fama-French 93/15、Carhart 97、Asness-Moskowitz-Pedersen 13、Frazzini-Pedersen BAB、Hou-Xue-Zhang q-factor、Stambaugh-Yuan、Novy-Marx GP/A、Amihud、Pastor-Stambaugh、Ang-Hodrick-Xing-Zhang、Harvey-Liu-Zhu、Lopez de Prado HRP 等），含摘要 + key takeaway + WQ Brain 因子实现示例。
-
 ### 自学习
 
 `WIKI_AUTO_RECORD=true` 时，每次 `wq-agent run` 的 backtest 完成后，真实研究记录默认写入 `WIKI_AUTO_RECORD_DIR=./private_wiki`：
@@ -261,7 +267,7 @@ wq-agent wiki import-paper --manual \
 - HIGH / MEDIUM 结果 → `private_wiki/entries/{date}-alpha-{id}.md`
 - REJECT 结果按"失败原因"聚类 → `private_wiki/lessons/{date}-batch-N.md`
 
-下次生成时，`wiki/` 与 `private_wiki/` 会合并检索，所以私有 entries / lessons 仍会喂给 LLM；但 `private_wiki/` 已在 `.gitignore` 中，适合长期维护开源仓。
+下次生成时，`wiki/` 与 `private_wiki/` 会合并检索，所以本地知识和私有 entries / lessons 仍会喂给 LLM；这些目录默认不进公开仓。
 
 ### 选向量后端
 
@@ -295,16 +301,34 @@ EMBEDDING_DIM=2048
 
 ## 开源安全
 
-本仓库按“public code + private research”设计：
+本仓库按“public code + local/private research”设计：
 
-- 可以公开：`src/`、`tests/`、`templates/`、`wiki/concepts` / `operators` / `fields` / `patterns` / `recipes` / `papers`、`.env.example`。
-- 不要公开：`.env`、`wq_agent.db`、`*.log`、`.claude/`、`.codex/`、`private_wiki/`、`wiki/entries/`、`wiki/lessons/`。
-- 重新开 public 前建议跑：`git ls-files | rg '^(private_wiki/|wiki/entries/|wiki/lessons/|\.claude/|\.codex/|\.env$)|\.(db|log)$'`，应无输出。
+- 可以公开：`src/`、`tests/`、`templates/`、`.env.example`、项目治理和流程文档。
+- 默认不公开：`wiki/` 内容、`private_wiki/`、`.env`、`wq_agent.db`、`*.log`、`.claude/`、`.codex/`。
+- 公开前跑：`python scripts/open_source_preflight.py`。该检查会拦截被跟踪的 wiki 内容、私有路径、生成产物和明显的密钥/提交编号痕迹。
 
+## 开源协作流程
+
+本仓库现在按常规开源项目流程维护：
+
+- 贡献入口：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- 安全披露：[SECURITY.md](SECURITY.md)
+- 治理模型：[GOVERNANCE.md](GOVERNANCE.md)
+- 支持信息：[SUPPORT.md](SUPPORT.md)
+- 变更记录：[CHANGELOG.md](CHANGELOG.md)
+- 完整流程：[docs/OPEN_SOURCE_PROCESS.md](docs/OPEN_SOURCE_PROCESS.md)
+
+GitHub 侧包含 issue 模板、PR 模板、CI、tag release 构建和 Dependabot 配置。普通贡献流程是：开 issue 或关联现有 issue -> 从 `main` 建分支 -> 补测试/文档 -> 跑本地检查 -> 开 PR -> CI 通过后由 maintainer review/merge。
 
 ## 开发
 
 ```bash
 ruff check src tests
 pytest
+python -m build
 ```
+
+## 许可证
+
+[MIT](LICENSE) © wq-agent contributors
