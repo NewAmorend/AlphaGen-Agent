@@ -142,7 +142,8 @@ class SubmissionManager:
         for row in candidates:
             row["sort_key"] = sort_spec.raw
             row["sort_value"] = _sortable_value(row, sort_spec.field)
-        queued_count = await self.db.upsert_submission_queue(candidates, sort_key=sort_spec.raw)
+        await self.db.upsert_submission_queue(candidates, sort_key=sort_spec.raw)
+        queued_count = await self.db.count_submission_queue(status="pending")
         csv_path = self.export_candidates(candidates, csv_dir=csv_dir) if write_csv else None
         return SubmissionPlan(candidates=candidates, queued_count=queued_count, csv_path=csv_path)
 
