@@ -4,6 +4,7 @@ credentials.json
 __pycache__/
 *.pyc
 results/
+runs/
 hopeful_alphas.json
 *.log
 .venv/

@@ -151,6 +151,37 @@ CREATE TABLE IF NOT EXISTS alpha_pnl (
     returns TEXT NOT NULL,
     fetched_at TIMESTAMP NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS submission_queue (
+    alpha_id INTEGER PRIMARY KEY REFERENCES alphas(id),
+    wq_alpha_id TEXT NOT NULL,
+    sort_key TEXT NOT NULL,
+    sort_value REAL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    queued_at TIMESTAMP NOT NULL,
+    submitted_at TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_submission_queue_status
+    ON submission_queue(status, queued_at);
+
+CREATE TABLE IF NOT EXISTS submission_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alpha_id INTEGER NOT NULL REFERENCES alphas(id),
+    wq_alpha_id TEXT NOT NULL,
+    date_bucket TEXT NOT NULL,
+    action TEXT NOT NULL,
+    result TEXT NOT NULL,
+    remote_status TEXT,
+    error TEXT,
+    created_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_submission_log_date_result
+    ON submission_log(date_bucket, result);
 """
 
 
@@ -524,6 +555,163 @@ class Database:
             (AlphaStatus.SUBMITTED.value, ts, alpha_id),
         )
         await self._conn.commit()
+
+    async def upsert_submission_queue(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        sort_key: str,
+    ) -> int:
+        """Insert or refresh pending submission candidates without disturbing terminal rows."""
+        assert self._conn is not None
+        if not rows:
+            return 0
+        now = datetime.now().isoformat()
+        count = 0
+        for row in rows:
+            if not row.get("wq_alpha_id"):
+                continue
+            await self._conn.execute(
+                """INSERT INTO submission_queue
+                   (alpha_id, wq_alpha_id, sort_key, sort_value, status, attempts,
+                    last_error, queued_at, submitted_at, updated_at)
+                   VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?, NULL, ?)
+                   ON CONFLICT(alpha_id) DO UPDATE SET
+                       wq_alpha_id = excluded.wq_alpha_id,
+                       sort_key = excluded.sort_key,
+                       sort_value = excluded.sort_value,
+                       status = CASE
+                           WHEN submission_queue.status IN ('submitted', 'rejected')
+                           THEN submission_queue.status
+                           ELSE 'pending'
+                       END,
+                       last_error = CASE
+                           WHEN submission_queue.status IN ('submitted', 'rejected')
+                           THEN submission_queue.last_error
+                           ELSE NULL
+                       END,
+                       updated_at = excluded.updated_at""",
+                (
+                    row["alpha_id"],
+                    row["wq_alpha_id"],
+                    sort_key,
+                    row.get("sort_value"),
+                    now,
+                    now,
+                ),
+            )
+            count += 1
+        await self._conn.commit()
+        return count
+
+    async def list_submission_queue(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        assert self._conn is not None
+        if status:
+            cursor = await self._conn.execute(
+                """SELECT q.*, a.expression
+                   FROM submission_queue q
+                   JOIN alphas a ON a.id = q.alpha_id
+                   WHERE q.status = ?
+                   ORDER BY
+                       q.sort_value IS NULL ASC,
+                       CASE WHEN substr(q.sort_key, 1, 1) = '-' THEN q.sort_value END DESC,
+                       CASE WHEN substr(q.sort_key, 1, 1) != '-' THEN q.sort_value END ASC,
+                       q.queued_at ASC
+                   LIMIT ?""",
+                (status, limit),
+            )
+        else:
+            cursor = await self._conn.execute(
+                """SELECT q.*, a.expression
+                   FROM submission_queue q
+                   JOIN alphas a ON a.id = q.alpha_id
+                   ORDER BY
+                       q.sort_value IS NULL ASC,
+                       CASE WHEN substr(q.sort_key, 1, 1) = '-' THEN q.sort_value END DESC,
+                       CASE WHEN substr(q.sort_key, 1, 1) != '-' THEN q.sort_value END ASC,
+                       q.queued_at ASC
+                   LIMIT ?""",
+                (limit,),
+            )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def count_submission_queue(self, *, status: str | None = None) -> int:
+        assert self._conn is not None
+        if status:
+            cursor = await self._conn.execute(
+                "SELECT COUNT(*) AS cnt FROM submission_queue WHERE status = ?",
+                (status,),
+            )
+        else:
+            cursor = await self._conn.execute("SELECT COUNT(*) AS cnt FROM submission_queue")
+        row = await cursor.fetchone()
+        return int(row["cnt"])
+
+    async def update_submission_queue_status(
+        self,
+        alpha_id: int,
+        *,
+        status: str,
+        submitted_at: datetime | None = None,
+        last_error: str | None = None,
+        increment_attempts: bool = False,
+    ) -> None:
+        assert self._conn is not None
+        now = datetime.now().isoformat()
+        submitted_ts = submitted_at.isoformat() if submitted_at else None
+        await self._conn.execute(
+            """UPDATE submission_queue
+               SET status = ?,
+                   submitted_at = COALESCE(?, submitted_at),
+                   last_error = ?,
+                   attempts = attempts + ?,
+                   updated_at = ?
+               WHERE alpha_id = ?""",
+            (status, submitted_ts, last_error, 1 if increment_attempts else 0, now, alpha_id),
+        )
+        await self._conn.commit()
+
+    async def insert_submission_log(
+        self,
+        *,
+        alpha_id: int,
+        wq_alpha_id: str,
+        date_bucket: str,
+        action: str,
+        result: str,
+        remote_status: str | None = None,
+        error: str | None = None,
+        created_at: datetime | None = None,
+    ) -> int:
+        assert self._conn is not None
+        ts = (created_at or datetime.now()).isoformat()
+        cursor = await self._conn.execute(
+            """INSERT INTO submission_log
+               (alpha_id, wq_alpha_id, date_bucket, action, result,
+                remote_status, error, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (alpha_id, wq_alpha_id, date_bucket, action, result, remote_status, error, ts),
+        )
+        await self._conn.commit()
+        return cursor.lastrowid
+
+    async def count_submission_successes(self, date_bucket: str) -> int:
+        assert self._conn is not None
+        cursor = await self._conn.execute(
+            """SELECT COUNT(*) AS cnt
+               FROM submission_log
+               WHERE date_bucket = ?
+                 AND action = 'submit'
+                 AND result = 'success'""",
+            (date_bucket,),
+        )
+        row = await cursor.fetchone()
+        return int(row["cnt"])
 
     async def list_submittable_alphas(
         self, min_fitness: float = 1.0, limit: int = 50,
