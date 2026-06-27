@@ -94,7 +94,7 @@ async def main():
 
         print(f"=== v2: Backtesting {len(ids)} seed alphas ===\n")
         results = await engine.backtest_batch(ids)
-        print(f"\n=== v2 Results ===")
+        print("\n=== v2 Results ===")
         for r in results:
             if r is None:
                 continue

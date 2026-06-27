@@ -113,6 +113,16 @@ wq-agent run --idea-file ideas/analyst_revision.txt -n 20 -b 3
 wq-agent backtest --pending --concurrent 5
 wq-agent backtest --ids 1,2,3
 
+# 回测后只保存提交候选队列和 CSV（默认按 Sharpe 降序）
+wq-agent backtest --pending --submit-mode backtest-only
+
+# 回测后按每日/单次限额自动提交
+wq-agent run --strategy llm -n 18 --submit-mode auto-submit
+
+# 单独执行一次队列提交；每日定时任务用 daemon
+wq-agent autosubmit once --daily-limit 20 --per-run-limit 5 --sort -sharpe
+wq-agent autosubmit daemon --enable --time 09:30
+
 # 查看高质量 alpha
 wq-agent list --quality high --min-fitness 0.6
 

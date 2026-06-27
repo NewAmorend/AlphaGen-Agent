@@ -12,7 +12,6 @@ from loguru import logger
 
 from .config import Settings
 from .db import Database
-from .models import AlphaStatus
 from .wq.client import WQClient
 
 
