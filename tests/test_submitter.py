@@ -184,6 +184,133 @@ async def test_failed_submit_attempt_consumes_daily_limit(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_submission_queue_deduplicates_and_refreshes_pending_rows(tmp_path):
+    db = Database(str(tmp_path / "wq.db"))
+    await db.connect()
+    try:
+        alpha_id = await _insert_high_alpha(db, "rank(a)", "wq1", sharpe=1.0, fitness=1.0)
+
+        count = await db.upsert_submission_queue(
+            [
+                {"alpha_id": alpha_id, "wq_alpha_id": "wq1", "sort_value": 1.0},
+                {"alpha_id": alpha_id, "wq_alpha_id": "wq1-new", "sort_value": 9.0},
+            ],
+            sort_key="-sharpe",
+        )
+        rows = await db.list_submission_queue(status="pending")
+
+        assert count == 1
+        assert len(rows) == 1
+        assert rows[0]["wq_alpha_id"] == "wq1"
+        assert rows[0]["sort_value"] == 1.0
+
+        await db.upsert_submission_queue(
+            [{"alpha_id": alpha_id, "wq_alpha_id": "wq1-refresh", "sort_value": 2.0}],
+            sort_key="-fitness",
+        )
+        refreshed = await db.list_submission_queue(status="pending")
+
+        assert len(refreshed) == 1
+        assert refreshed[0]["wq_alpha_id"] == "wq1-refresh"
+        assert refreshed[0]["sort_key"] == "-fitness"
+        assert refreshed[0]["sort_value"] == 2.0
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_upsert_submission_queue_does_not_overwrite_terminal_rows(tmp_path):
+    db = Database(str(tmp_path / "wq.db"))
+    await db.connect()
+    try:
+        alpha_id = await _insert_high_alpha(db, "rank(a)", "wq1", sharpe=1.0, fitness=1.0)
+        await db.upsert_submission_queue(
+            [{"alpha_id": alpha_id, "wq_alpha_id": "wq1", "sort_value": 1.0}],
+            sort_key="-sharpe",
+        )
+        await db.update_submission_queue_status(
+            alpha_id,
+            status="rejected",
+            last_error="SELF_CORRELATION FAIL",
+            increment_attempts=True,
+        )
+
+        await db.upsert_submission_queue(
+            [{"alpha_id": alpha_id, "wq_alpha_id": "wq1-new", "sort_value": 2.0}],
+            sort_key="-fitness",
+        )
+        rows = await db.list_submission_queue(status="rejected")
+
+        assert len(rows) == 1
+        assert rows[0]["wq_alpha_id"] == "wq1"
+        assert rows[0]["sort_key"] == "-sharpe"
+        assert rows[0]["sort_value"] == 1.0
+        assert rows[0]["status"] == "rejected"
+        assert rows[0]["last_error"] == "SELF_CORRELATION FAIL"
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_submission_attempt_reservation_finalizes_exact_log_once(tmp_path):
+    db = Database(str(tmp_path / "wq.db"))
+    await db.connect()
+    try:
+        alpha1 = await _insert_high_alpha(db, "rank(a)", "wq1", sharpe=1.0, fitness=1.0)
+        alpha2 = await _insert_high_alpha(db, "rank(b)", "wq2", sharpe=1.1, fitness=1.1)
+        bucket = "2026-01-01"
+
+        attempt1 = await db.reserve_submission_attempt(
+            alpha_id=alpha1,
+            wq_alpha_id="wq1",
+            date_bucket=bucket,
+            daily_limit=5,
+        )
+        attempt2 = await db.reserve_submission_attempt(
+            alpha_id=alpha2,
+            wq_alpha_id="wq2",
+            date_bucket=bucket,
+            daily_limit=5,
+        )
+
+        assert attempt1 is not None
+        assert attempt2 is not None
+        assert attempt2 != attempt1
+        assert await db.count_submission_attempts(bucket) == 2
+
+        await db.finalize_submission_attempt(
+            attempt_id=attempt1,
+            alpha_id=alpha1,
+            wq_alpha_id="wq1",
+            date_bucket=bucket,
+            result="success",
+            remote_status="ACTIVE",
+        )
+        await db.finalize_submission_attempt(
+            attempt_id=attempt1,
+            alpha_id=alpha1,
+            wq_alpha_id="wq1",
+            date_bucket=bucket,
+            result="failure",
+            remote_status="ERROR",
+        )
+
+        assert await db.count_submission_attempts(bucket) == 2
+        assert db._conn is not None
+        cursor = await db._conn.execute(
+            """SELECT result, remote_status
+               FROM submission_log
+               WHERE id = ?""",
+            (attempt1,),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert dict(row) == {"result": "success", "remote_status": "ACTIVE"}
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_alpha_submission_does_not_mark_unsubmitted_self_corr_pass(monkeypatch):
     client = WQClient(Settings(_env_file=None))
 
@@ -207,6 +334,25 @@ async def test_poll_alpha_submission_does_not_mark_unsubmitted_self_corr_pass(mo
 
     assert result["status"] == "pending"
     assert result["remote_status"] == "UNSUBMITTED"
+
+
+@pytest.mark.asyncio
+async def test_poll_alpha_submission_reports_parse_error(monkeypatch):
+    client = WQClient(Settings(_env_file=None))
+
+    async def fake_request(method, path, **kwargs):
+        assert method == "get"
+        return httpx.Response(200, text="not-json")
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    result = await client.poll_alpha_submission("wq1", timeout=0.01, poll_interval=0.01)
+
+    assert result == {
+        "status": "error",
+        "message": "failed to parse alpha submission response",
+        "remote_status": "parse_error",
+    }
 
 
 async def _insert_high_alpha(

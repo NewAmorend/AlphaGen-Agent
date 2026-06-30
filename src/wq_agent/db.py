@@ -87,6 +87,8 @@ def expression_outer_signature(expr: str, levels: int = 2) -> str:
     return "(".join(sig_ops)
 
 _SCHEMA = """
+DROP INDEX IF EXISTS idx_submission_log_date_result;
+
 CREATE TABLE IF NOT EXISTS alphas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     expression TEXT NOT NULL,
@@ -180,8 +182,8 @@ CREATE TABLE IF NOT EXISTS submission_log (
     created_at TIMESTAMP NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_submission_log_date_result
-    ON submission_log(date_bucket, result);
+CREATE INDEX IF NOT EXISTS idx_submission_log_date_action_result
+    ON submission_log(date_bucket, action, result);
 """
 
 
@@ -568,7 +570,13 @@ class Database:
             return 0
         now = datetime.now().isoformat()
         count = 0
+        deduped_rows: dict[int, dict[str, Any]] = {}
         for row in rows:
+            alpha_id = int(row["alpha_id"])
+            if alpha_id not in deduped_rows:
+                deduped_rows[alpha_id] = row
+
+        for row in deduped_rows.values():
             if not row.get("wq_alpha_id"):
                 continue
             await self._conn.execute(
@@ -577,9 +585,21 @@ class Database:
                     last_error, queued_at, submitted_at, updated_at)
                    VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?, NULL, ?)
                    ON CONFLICT(alpha_id) DO UPDATE SET
-                       wq_alpha_id = excluded.wq_alpha_id,
-                       sort_key = excluded.sort_key,
-                       sort_value = excluded.sort_value,
+                       wq_alpha_id = CASE
+                           WHEN submission_queue.status IN ('submitted', 'rejected')
+                           THEN submission_queue.wq_alpha_id
+                           ELSE excluded.wq_alpha_id
+                       END,
+                       sort_key = CASE
+                           WHEN submission_queue.status IN ('submitted', 'rejected')
+                           THEN submission_queue.sort_key
+                           ELSE excluded.sort_key
+                       END,
+                       sort_value = CASE
+                           WHEN submission_queue.status IN ('submitted', 'rejected')
+                           THEN submission_queue.sort_value
+                           ELSE excluded.sort_value
+                       END,
                        status = CASE
                            WHEN submission_queue.status IN ('submitted', 'rejected')
                            THEN submission_queue.status
@@ -590,9 +610,13 @@ class Database:
                            THEN submission_queue.last_error
                            ELSE NULL
                        END,
-                       updated_at = excluded.updated_at""",
+                       updated_at = CASE
+                           WHEN submission_queue.status IN ('submitted', 'rejected')
+                           THEN submission_queue.updated_at
+                           ELSE excluded.updated_at
+                       END""",
                 (
-                    row["alpha_id"],
+                    int(row["alpha_id"]),
                     row["wq_alpha_id"],
                     sort_key,
                     row.get("sort_value"),
@@ -703,6 +727,7 @@ class Database:
     async def finalize_submission_attempt(
         self,
         *,
+        attempt_id: int,
         alpha_id: int,
         wq_alpha_id: str,
         date_bucket: str,
@@ -710,44 +735,19 @@ class Database:
         remote_status: str | None = None,
         error: str | None = None,
     ) -> None:
-        """Finalize the latest reserved submit attempt for this alpha."""
+        """Finalize a reserved submit attempt without creating duplicate log rows."""
         assert self._conn is not None
-        cursor = await self._conn.execute(
-            """SELECT id
-               FROM submission_log
-               WHERE alpha_id = ?
+        await self._conn.execute(
+            """UPDATE submission_log
+               SET result = ?, remote_status = ?, error = ?
+               WHERE id = ?
+                 AND alpha_id = ?
                  AND wq_alpha_id = ?
                  AND date_bucket = ?
                  AND action = 'submit'
-                 AND result = 'reserved'
-               ORDER BY id DESC
-               LIMIT 1""",
-            (alpha_id, wq_alpha_id, date_bucket),
+                 AND result = 'reserved'""",
+            (result, remote_status, error, attempt_id, alpha_id, wq_alpha_id, date_bucket),
         )
-        row = await cursor.fetchone()
-        if row:
-            await self._conn.execute(
-                """UPDATE submission_log
-                   SET result = ?, remote_status = ?, error = ?
-                   WHERE id = ?""",
-                (result, remote_status, error, row["id"]),
-            )
-        else:
-            await self._conn.execute(
-                """INSERT INTO submission_log
-                   (alpha_id, wq_alpha_id, date_bucket, action, result,
-                    remote_status, error, created_at)
-                   VALUES (?, ?, ?, 'submit', ?, ?, ?, ?)""",
-                (
-                    alpha_id,
-                    wq_alpha_id,
-                    date_bucket,
-                    result,
-                    remote_status,
-                    error,
-                    datetime.now().isoformat(),
-                ),
-            )
         await self._conn.commit()
 
     async def count_submission_attempts(self, date_bucket: str) -> int:
@@ -769,7 +769,7 @@ class Database:
         wq_alpha_id: str,
         date_bucket: str,
         daily_limit: int,
-    ) -> bool:
+    ) -> int | None:
         """Atomically reserve one daily submission attempt before hitting WQ."""
         assert self._conn is not None
         await self._conn.execute("BEGIN IMMEDIATE")
@@ -784,16 +784,17 @@ class Database:
             used = int((await cursor.fetchone())["cnt"])
             if used >= daily_limit:
                 await self._conn.rollback()
-                return False
-            await self._conn.execute(
+                return None
+            cursor = await self._conn.execute(
                 """INSERT INTO submission_log
                    (alpha_id, wq_alpha_id, date_bucket, action, result,
                     remote_status, error, created_at)
                    VALUES (?, ?, ?, 'submit', 'reserved', NULL, NULL, ?)""",
                 (alpha_id, wq_alpha_id, date_bucket, datetime.now().isoformat()),
             )
+            attempt_id = int(cursor.lastrowid)
             await self._conn.commit()
-            return True
+            return attempt_id
         except Exception:
             await self._conn.rollback()
             raise

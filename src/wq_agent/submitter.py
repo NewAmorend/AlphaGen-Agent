@@ -215,13 +215,13 @@ class SubmissionManager:
         alpha_id = int(row["alpha_id"])
         wq_alpha_id = str(row["wq_alpha_id"])
         bucket = date_bucket(timezone=self.settings.SUBMIT_TIMEZONE)
-        reserved = await self.db.reserve_submission_attempt(
+        attempt_id = await self.db.reserve_submission_attempt(
             alpha_id=alpha_id,
             wq_alpha_id=wq_alpha_id,
             date_bucket=bucket,
             daily_limit=daily_limit,
         )
-        if not reserved:
+        if attempt_id is None:
             return {
                 "alpha_id": alpha_id,
                 "wq_alpha_id": wq_alpha_id,
@@ -234,6 +234,7 @@ class SubmissionManager:
                 return await self._record_failure(
                     alpha_id,
                     wq_alpha_id,
+                    attempt_id,
                     bucket,
                     submit_result.get("message") or "submit failed",
                     remote_status=submit_result.get("remote_status"),
@@ -252,6 +253,7 @@ class SubmissionManager:
                     increment_attempts=True,
                 )
                 await self.db.finalize_submission_attempt(
+                    attempt_id=attempt_id,
                     alpha_id=alpha_id,
                     wq_alpha_id=wq_alpha_id,
                     date_bucket=bucket,
@@ -272,6 +274,7 @@ class SubmissionManager:
                 return await self._record_failure(
                     alpha_id,
                     wq_alpha_id,
+                    attempt_id,
                     bucket,
                     "SELF_CORRELATION FAIL",
                     remote_status=remote_status,
@@ -280,6 +283,7 @@ class SubmissionManager:
             return await self._record_failure(
                 alpha_id,
                 wq_alpha_id,
+                attempt_id,
                 bucket,
                 poll.get("message") or f"submission pending: {status}",
                 remote_status=remote_status,
@@ -287,12 +291,13 @@ class SubmissionManager:
             )
         except Exception as exc:
             logger.warning(f"auto-submit failed for alpha {alpha_id}: {exc}")
-            return await self._record_failure(alpha_id, wq_alpha_id, bucket, str(exc))
+            return await self._record_failure(alpha_id, wq_alpha_id, attempt_id, bucket, str(exc))
 
     async def _record_failure(
         self,
         alpha_id: int,
         wq_alpha_id: str,
+        attempt_id: int,
         bucket: str,
         error: str,
         *,
@@ -306,6 +311,7 @@ class SubmissionManager:
             increment_attempts=True,
         )
         await self.db.finalize_submission_attempt(
+            attempt_id=attempt_id,
             alpha_id=alpha_id,
             wq_alpha_id=wq_alpha_id,
             date_bucket=bucket,

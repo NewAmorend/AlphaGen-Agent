@@ -316,8 +316,13 @@ class WQClient:
                 }
             try:
                 alpha = resp.json()
-            except Exception as exc:
-                return {"status": "error", "message": str(exc), "remote_status": "parse_error"}
+            except ValueError as exc:
+                logger.warning(f"Failed to parse alpha submission status for {wq_alpha_id}: {exc}")
+                return {
+                    "status": "error",
+                    "message": "failed to parse alpha submission response",
+                    "remote_status": "parse_error",
+                }
             last_alpha = alpha
             remote_status = str(alpha.get("status") or "")
             if remote_status == "ACTIVE":
