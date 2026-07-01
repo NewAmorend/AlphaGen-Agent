@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     SELF_CORR_SHARPE_MARGIN: float = 0.10   # sharpe 超越豁免线（高 10% 则 WQ 仍收）
     SELF_CORR_MIN_OVERLAP: int = 60         # 两向量重叠不足此天数则跳过（判"未知"）
 
+    SUBMIT_DAILY_LIMIT: int = 20
+    SUBMIT_PER_RUN_LIMIT: int = 5
+    SUBMIT_SORT: str = "-sharpe"
+    SUBMIT_TIMEZONE: str = "America/New_York"
+    SUBMIT_DAILY_ENABLED: bool = False
+    SUBMIT_DAILY_TIME: str = "09:30"
+
     DB_PATH: str = "./wq_agent.db"
 
     WIKI_DIR: str = "./wiki"

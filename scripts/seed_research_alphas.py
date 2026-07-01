@@ -108,7 +108,7 @@ async def main():
 
         print(f"=== Backtesting {len(ids)} seed alphas (max_concurrent={settings.WQ_MAX_CONCURRENT}) ===\n")
         results = await engine.backtest_batch(ids)
-        print(f"\n=== Results ===")
+        print("\n=== Results ===")
         for r in results:
             if r is None:
                 continue

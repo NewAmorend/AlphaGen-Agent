@@ -21,7 +21,9 @@ app = typer.Typer(
     add_completion=False,
 )
 wiki_app = typer.Typer(name="wiki", help="Quant Wiki maintenance commands", add_completion=False)
+autosubmit_app = typer.Typer(name="autosubmit", help="Submission queue commands", add_completion=False)
 app.add_typer(wiki_app, name="wiki")
+app.add_typer(autosubmit_app, name="autosubmit")
 console = Console()
 
 
@@ -181,6 +183,7 @@ def backtest(
     pending: bool = typer.Option(False, "--pending", help="Backtest all pending alphas"),
     all_generated: bool = typer.Option(False, "--all", help="Backtest all generated alphas"),
     max_concurrent: int = typer.Option(5, "--concurrent", "-c", help="Max concurrent simulations"),
+    submit_mode: str = typer.Option("backtest-only", "--submit-mode", help="backtest-only or auto-submit"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Run backtests on generated alphas."""
@@ -212,7 +215,7 @@ def backtest(
                 return
 
             console.print(f"[bold cyan]Backtesting {len(alpha_ids)} alphas...[/bold cyan]")
-            results = await orch.backtest(alpha_ids)
+            results = await orch.backtest(alpha_ids, submit_mode=submit_mode)
             console.print(f"[bold green]Backtest complete: {len(results)} results[/bold green]")
         except Exception as e:
             console.print(f"[bold red]Error: {e}[/bold red]")
@@ -299,6 +302,7 @@ def run(
     interval: int = typer.Option(60, "--interval", help="Seconds between batches"),
     idea: Optional[str] = typer.Option(None, "--idea", help="Natural-language research idea to guide LLM generation"),
     idea_file: Optional[Path] = typer.Option(None, "--idea-file", help="Read natural-language research idea from a UTF-8 text file"),
+    submit_mode: str = typer.Option("backtest-only", "--submit-mode", help="backtest-only or auto-submit"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Full pipeline: generate → backtest → evaluate → display."""
@@ -312,7 +316,13 @@ def run(
             user_idea = _load_user_idea(idea, idea_file)
             for batch_num in range(1, batches + 1):
                 console.print(f"\n[bold magenta]═══ Batch {batch_num}/{batches} ═══[/bold magenta]")
-                await orch.run(strategy=strat, count=count, auto_backtest=True, user_idea=user_idea)
+                await orch.run(
+                    strategy=strat,
+                    count=count,
+                    auto_backtest=True,
+                    submit_mode=submit_mode,
+                    user_idea=user_idea,
+                )
                 if batch_num < batches:
                     console.print(f"\n[dim]Waiting {interval}s before next batch...[/dim]")
                     await asyncio.sleep(interval)
@@ -590,6 +600,92 @@ def submit(
             console.print(f"[green]✓ Marked alpha #{alpha_id} as SUBMITTED[/green]")
             console.print(f"  expr: [dim]{alpha.expression[:120]}[/dim]")
         finally:
+            await db.close()
+
+    asyncio.run(_run())
+
+
+@autosubmit_app.command("once")
+def autosubmit_once(
+    daily_limit: Optional[int] = typer.Option(None, "--daily-limit", help="Override daily submission limit"),
+    per_run_limit: Optional[int] = typer.Option(None, "--per-run-limit", help="Override per-run submission limit"),
+    sort: Optional[str] = typer.Option(None, "--sort", help="Sort key, e.g. -sharpe or fitness"),
+    min_fitness: Optional[float] = typer.Option(None, "--min-fitness", help="Override minimum fitness"),
+    no_csv: bool = typer.Option(False, "--no-csv", help="Do not write candidate CSV"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Submit one batch from the persisted queue within daily/per-run limits."""
+    _setup_logging(verbose)
+    from .submitter import SubmissionManager
+    from .db import Database
+    from .wq.client import WQClient
+
+    async def _run():
+        settings = get_settings()
+        db = Database(settings.DB_PATH)
+        await db.connect()
+        client = WQClient(settings)
+        await client.connect()
+        try:
+            manager = SubmissionManager(db, client, settings)
+            result = await manager.run_once(
+                daily_limit=daily_limit,
+                per_run_limit=per_run_limit,
+                sort=sort,
+                min_fitness=min_fitness,
+                write_csv=not no_csv,
+            )
+            console.print(
+                "[green]autosubmit once complete[/green]: "
+                f"attempted={result.attempted}, succeeded={result.succeeded}, "
+                f"failed={result.failed}, pending={result.skipped}, "
+                f"daily_remaining={result.daily_remaining}"
+            )
+        except Exception as e:
+            console.print(f"[bold red]Error: {e}[/bold red]")
+            raise typer.Exit(1)
+        finally:
+            await client.close()
+            await db.close()
+
+    asyncio.run(_run())
+
+
+@autosubmit_app.command("daemon")
+def autosubmit_daemon(
+    enable: bool = typer.Option(False, "--enable", help="Run even if SUBMIT_DAILY_ENABLED=false"),
+    daily_time: Optional[str] = typer.Option(None, "--time", help="HH:MM in configured submit timezone"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Run daily auto-submit at the configured time."""
+    _setup_logging(verbose)
+    from .submitter import SubmissionManager, run_daily_daemon
+    from .db import Database
+    from .wq.client import WQClient
+
+    async def _run():
+        settings = get_settings()
+        enabled = enable or settings.SUBMIT_DAILY_ENABLED
+        if not enabled:
+            console.print("[yellow]Daily auto-submit is disabled; pass --enable to run.[/yellow]")
+            raise typer.Exit(1)
+        db = Database(settings.DB_PATH)
+        await db.connect()
+        client = WQClient(settings)
+        await client.connect()
+        try:
+            manager = SubmissionManager(db, client, settings)
+            console.print(
+                f"[green]Daily auto-submit daemon started[/green] "
+                f"({settings.SUBMIT_TIMEZONE} {daily_time or settings.SUBMIT_DAILY_TIME})"
+            )
+            await run_daily_daemon(
+                manager,
+                enabled=enabled,
+                daily_time=daily_time or settings.SUBMIT_DAILY_TIME,
+            )
+        finally:
+            await client.close()
             await db.close()
 
     asyncio.run(_run())

@@ -283,6 +283,69 @@ class WQClient:
         logger.warning(f"Failed to get alpha details for {alpha_id}: {resp.status_code}")
         return {}
 
+    async def submit_alpha(self, wq_alpha_id: str) -> dict[str, Any]:
+        """Submit an existing simulated alpha to WQ Brain."""
+        resp = await self._request("post", f"/alphas/{wq_alpha_id}/submit")
+        if resp.status_code in (200, 201):
+            return {"status": "success", "remote_status": "SUBMITTED"}
+        if resp.status_code == 429:
+            return {"status": "error", "message": "RATE_LIMITED", "remote_status": "RATE_LIMITED"}
+        error_text = resp.text[:500]
+        return {
+            "status": "error",
+            "message": error_text,
+            "remote_status": str(resp.status_code),
+        }
+
+    async def poll_alpha_submission(
+        self,
+        wq_alpha_id: str,
+        timeout: float = 600.0,
+        poll_interval: float = 10.0,
+    ) -> dict[str, Any]:
+        """Poll alpha status after submit until accepted, rejected, or timeout."""
+        start = time.monotonic()
+        last_alpha: dict[str, Any] = {}
+        while time.monotonic() - start < timeout:
+            resp = await self._request("get", f"/alphas/{wq_alpha_id}")
+            if resp.status_code != 200:
+                return {
+                    "status": "error",
+                    "message": resp.text[:500],
+                    "remote_status": str(resp.status_code),
+                }
+            try:
+                alpha = resp.json()
+            except ValueError as exc:
+                logger.warning(f"Failed to parse alpha submission status for {wq_alpha_id}: {exc}")
+                return {
+                    "status": "error",
+                    "message": "failed to parse alpha submission response",
+                    "remote_status": "parse_error",
+                }
+            last_alpha = alpha
+            remote_status = str(alpha.get("status") or "")
+            if remote_status == "ACTIVE":
+                return {"status": "active", "remote_status": remote_status, "alpha": alpha}
+            if alpha.get("dateSubmitted") or remote_status == "SUBMITTED":
+                return {"status": "submitted", "remote_status": remote_status, "alpha": alpha}
+
+            checks = alpha.get("is", {}).get("checks", [])
+            if _has_self_correlation_fail(checks):
+                return {
+                    "status": "self_correlation_fail",
+                    "remote_status": remote_status,
+                    "alpha": alpha,
+                }
+            await asyncio.sleep(poll_interval)
+
+        return {
+            "status": "pending",
+            "message": f"Submission polling timed out after {timeout}s",
+            "remote_status": str(last_alpha.get("status") or "UNKNOWN") if last_alpha else "UNKNOWN",
+            "alpha": last_alpha,
+        }
+
     async def get_all_datasets(
         self,
         region: str | None = None,
@@ -445,3 +508,23 @@ def _DEFAULT_OPERATORS() -> list[WQOperator]:
         ("group_zscore", "Group", "Group z-score"),
     ]
     return [WQOperator(name=n, category=c, description=d) for n, c, d in defaults]
+
+
+def _has_self_correlation_fail(checks: Any) -> bool:
+    return _self_correlation_result(checks) == "FAIL"
+
+
+def _has_self_correlation_pass(checks: Any) -> bool:
+    return _self_correlation_result(checks) == "PASS"
+
+
+def _self_correlation_result(checks: Any) -> str | None:
+    if not isinstance(checks, list):
+        return None
+    for check in checks:
+        if not isinstance(check, dict):
+            continue
+        if str(check.get("name", "")).upper() == "SELF_CORRELATION":
+            result = check.get("result")
+            return str(result).upper() if result is not None else None
+    return None

@@ -23,6 +23,7 @@ from ..generator.template import TemplateAlphaGenerator
 from ..generator.factor import FactorMiningGenerator
 from ..generator.base import BaseAlphaGenerator
 from ..engine.backtest import BacktestEngine
+from ..submitter import SubmissionManager
 from ..wiki.store import CompositeWikiStore, WikiStore
 from ..wiki.index import WikiIndex
 from ..wiki.embeddings import BaseEmbeddingProvider, make_embedding_provider
@@ -30,6 +31,10 @@ from ..wiki.auto_record import AutoRecorder
 
 
 console = Console()
+
+SUBMIT_MODE_BACKTEST_ONLY = "backtest-only"
+SUBMIT_MODE_AUTO_SUBMIT = "auto-submit"
+SUBMIT_MODES = {SUBMIT_MODE_BACKTEST_ONLY, SUBMIT_MODE_AUTO_SUBMIT}
 
 
 class Orchestrator:
@@ -117,10 +122,12 @@ class Orchestrator:
         strategy: GenerationStrategy = GenerationStrategy.LLM,
         count: int = 18,
         auto_backtest: bool = True,
+        submit_mode: str = SUBMIT_MODE_BACKTEST_ONLY,
         user_idea: str | None = None,
         dataset_categories: list[str] | None = None,
         market_region: str | None = None,
     ) -> list[AlphaRecord]:
+        _validate_submit_mode(submit_mode)
         generator = self._generators.get(strategy)
         if not generator:
             raise ValueError(f"Unknown strategy: {strategy}")
@@ -226,6 +233,7 @@ class Orchestrator:
             engine = BacktestEngine(self.wq, self.db, self.settings, region_override=market_region)
             results = await engine.backtest_batch(ids)
             self._display_results(records, results)
+            await self._handle_post_backtest_submission(submit_mode)
             if self._auto_recorder:
                 stats = await self._auto_recorder.record(records, results)
                 if stats["entries"] or stats["lessons"]:
@@ -236,9 +244,17 @@ class Orchestrator:
 
         return records
 
-    async def backtest(self, alpha_ids: list[int], market_region: str | None = None) -> list[BacktestResult]:
+    async def backtest(
+        self,
+        alpha_ids: list[int],
+        market_region: str | None = None,
+        submit_mode: str = SUBMIT_MODE_BACKTEST_ONLY,
+    ) -> list[BacktestResult]:
+        _validate_submit_mode(submit_mode)
         engine = BacktestEngine(self.wq, self.db, self.settings, region_override=market_region)
-        return await engine.backtest_batch(alpha_ids)
+        results = await engine.backtest_batch(alpha_ids)
+        await self._handle_post_backtest_submission(submit_mode)
+        return results
 
     async def refine(
         self,
@@ -356,6 +372,23 @@ class Orchestrator:
     async def status(self) -> dict[str, int]:
         return await self.db.get_stats()
 
+    async def _handle_post_backtest_submission(self, submit_mode: str) -> None:
+        manager = SubmissionManager(self.db, self.wq, self.settings)
+        if submit_mode == SUBMIT_MODE_BACKTEST_ONLY:
+            plan = await manager.prepare_queue()
+            if plan.csv_path:
+                console.print(
+                    f"[dim]Submission candidates saved to {plan.csv_path} "
+                    f"({plan.queued_count} queued)[/dim]"
+                )
+            return
+        result = await manager.run_once()
+        console.print(
+            "[bold cyan]Auto-submit:[/bold cyan] "
+            f"attempted {result.attempted}, succeeded {result.succeeded}, "
+            f"failed {result.failed}, daily remaining {result.daily_remaining}"
+        )
+
     def _display_results(
         self,
         records: list[AlphaRecord],
@@ -395,3 +428,9 @@ class Orchestrator:
                             f"{r.turnover:.4f}" if r.turnover else "N/A",
                         )
             console.print(table)
+
+
+def _validate_submit_mode(submit_mode: str) -> None:
+    if submit_mode not in SUBMIT_MODES:
+        allowed = ", ".join(sorted(SUBMIT_MODES))
+        raise ValueError(f"submit_mode must be one of: {allowed}")
