@@ -96,6 +96,8 @@ LLM_MODEL=claude-3-5-sonnet-latest
 安装后会注册 `alphagen-agent` 命令：
 
 > 从旧版本升级时，`wq-agent` 仍作为兼容别名可用；新脚本请统一使用 `alphagen-agent`。
+> 若未显式设置 `DB_PATH`，且工作区只有旧版 `wq_agent.db`，新版本会自动继续使用旧数据库；
+> `alphagen_agent.db` 存在时则优先使用新名称。
 
 ```bash
 # 全流程：生成 → 回测 → 评估 → 展示

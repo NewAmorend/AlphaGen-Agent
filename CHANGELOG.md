@@ -5,6 +5,13 @@ uses semantic versioning once public releases begin.
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the project, distribution, package, and primary CLI to AlphaGen Agent,
+  `alphagen_agent`, and `alphagen-agent`; legacy Python and CLI names remain compatible.
+- Reuse an existing `wq_agent.db` automatically when `alphagen_agent.db` is absent,
+  preventing upgrades from silently starting with an empty database.
+
 ### Added
 
 - Open source project process documents, GitHub issue/PR templates, CI, and

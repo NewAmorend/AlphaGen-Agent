@@ -1,5 +1,17 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+
+def _default_db_path() -> str:
+    """Reuse a legacy database when an upgraded workspace has not migrated it yet."""
+    current = Path("./alphagen_agent.db")
+    legacy = Path("./wq_agent.db")
+    if not current.exists() and legacy.exists():
+        return "./wq_agent.db"
+    return "./alphagen_agent.db"
 
 
 class Settings(BaseSettings):
@@ -48,7 +60,7 @@ class Settings(BaseSettings):
     SELF_CORR_SHARPE_MARGIN: float = 0.10   # sharpe 超越豁免线（高 10% 则 WQ 仍收）
     SELF_CORR_MIN_OVERLAP: int = 60         # 两向量重叠不足此天数则跳过（判"未知"）
 
-    DB_PATH: str = "./alphagen_agent.db"
+    DB_PATH: str = Field(default_factory=_default_db_path)
 
     WIKI_DIR: str = "./wiki"
     WIKI_RETRIEVE_TOP_K: int = 5
