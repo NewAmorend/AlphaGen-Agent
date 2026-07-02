@@ -14,8 +14,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from wq_agent.agent.orchestrator import Orchestrator
-from wq_agent.models import GenerationStrategy
+from alphagen_agent.agent.orchestrator import Orchestrator
+from alphagen_agent.models import GenerationStrategy
 
 
 def _is_redundant(cand: dict) -> bool:
@@ -38,7 +38,7 @@ async def main(batches: int, count: int, variants: int, refine_passes: int) -> N
 
         # ---- Phase 2: 对非重近失因子 refine ----
         refined: set[int] = set()
-        from wq_agent.engine.correlation import CorrelationScreener
+        from alphagen_agent.engine.correlation import CorrelationScreener
         screener = CorrelationScreener(orch.db, orch.wq, orch.settings)
         for p in range(1, refine_passes + 1):
             cands = await orch.db.list_refine_candidates(limit=100)

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from wq_agent.db import Database
-from wq_agent.engine.backtest import extract_field_candidates
-from wq_agent.generator.llm import LLMAlphaGenerator
+from alphagen_agent.db import Database
+from alphagen_agent.engine.backtest import extract_field_candidates
+from alphagen_agent.generator.llm import LLMAlphaGenerator
 
 
 def test_extract_field_candidates_skips_operators_and_keywords():
@@ -51,7 +51,7 @@ def test_nesting_depth_counts_max_open_parens():
 
 
 def test_clean_expressions_drops_overly_nested():
-    from wq_agent.llm.base import BaseLLMProvider
+    from alphagen_agent.llm.base import BaseLLMProvider
     class _DummyLLM(BaseLLMProvider):
         async def generate(self, *a, **k): return ""
         async def close(self): pass
@@ -93,7 +93,7 @@ async def test_blacklist_round_trip(tmp_path):
 @pytest.mark.asyncio
 async def test_reset_stuck_backtesting(tmp_path):
     from datetime import datetime
-    from wq_agent.models import AlphaRecord, AlphaStatus, GenerationStrategy
+    from alphagen_agent.models import AlphaRecord, AlphaStatus, GenerationStrategy
     db = Database(str(tmp_path / "wq.db"))
     await db.connect()
     try:

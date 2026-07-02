@@ -4,8 +4,8 @@ from pathlib import Path
 
 import yaml
 
-from wq_agent.wiki.curator import KnowledgeCurator, parse_since
-from wq_agent.wiki.store import WikiStore
+from alphagen_agent.wiki.curator import KnowledgeCurator, parse_since
+from alphagen_agent.wiki.store import WikiStore
 
 
 def _write_page(root: Path, rel: str, body: str) -> None:

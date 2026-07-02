@@ -276,7 +276,7 @@ class Orchestrator:
             if not candidates:
                 console.print(
                     "[yellow]No MEDIUM-grade alphas to refine. "
-                    "Run `wq-agent run` first to produce some near-miss candidates.[/yellow]"
+                    "Run `alphagen-agent run` first to produce some near-miss candidates.[/yellow]"
                 )
                 return []
             base = candidates[0]

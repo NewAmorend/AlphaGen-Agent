@@ -4,9 +4,9 @@ from datetime import datetime
 
 import pytest
 
-from wq_agent.config import Settings
-from wq_agent.db import Database
-from wq_agent.engine.correlation import (
+from alphagen_agent.config import Settings
+from alphagen_agent.db import Database
+from alphagen_agent.engine.correlation import (
     CorrelationScreener,
     align,
     hard_gate,
@@ -15,7 +15,7 @@ from wq_agent.engine.correlation import (
     parse_pnl_response,
     pearson,
 )
-from wq_agent.models import (
+from alphagen_agent.models import (
     AlphaRecord,
     AlphaStatus,
     BacktestResult,
@@ -84,8 +84,8 @@ def test_parse_pnl_response_diffs_to_daily_returns():
 @pytest.mark.asyncio
 async def test_get_pnl_retries_on_empty_200_then_parses(monkeypatch):
     """WQ 突发节流会返回 200+空 body；get_pnl 应退避重试而非当成永久失败。"""
-    import wq_agent.wq.client as clientmod
-    from wq_agent.wq.client import WQClient
+    import alphagen_agent.wq.client as clientmod
+    from alphagen_agent.wq.client import WQClient
 
     wq = WQClient(Settings(_env_file=None))
 

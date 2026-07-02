@@ -14,5 +14,5 @@ uses semantic versioning once public releases begin.
 
 ### Added
 
-- Initial public package metadata for the wq-agent CLI/TUI alpha research
+- Initial public package metadata for the AlphaGen Agent CLI/TUI alpha research
   harness.

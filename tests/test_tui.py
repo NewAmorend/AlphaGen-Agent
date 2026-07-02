@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from wq_agent.tui import WQAgentTui, _DATASET_CATEGORIES, _MARKETS, _truncate
+from alphagen_agent.tui import AlphaGenAgentTui, _DATASET_CATEGORIES, _MARKETS, _truncate
 
 
 def test_tui_declares_core_bindings():
-    actions = {binding[1] for binding in WQAgentTui.BINDINGS}
+    actions = {binding[1] for binding in AlphaGenAgentTui.BINDINGS}
     assert {"generate", "run_batch", "refine", "backtest_pending", "refresh", "quit"} <= actions
 
 

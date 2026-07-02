@@ -6,16 +6,16 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from wq_agent.models import WQOperator
-from wq_agent.wiki.importers.papers import (
+from alphagen_agent.models import WQOperator
+from alphagen_agent.wiki.importers.papers import (
     PaperImporter,
     PaperRecord,
     fetch_arxiv,
     parse_url,
     slugify,
 )
-from wq_agent.wiki.importers.wq import WQDocImporter
-from wq_agent.wiki.schema import parse_page
+from alphagen_agent.wiki.importers.wq import WQDocImporter
+from alphagen_agent.wiki.schema import parse_page
 
 
 _ARXIV_RESPONSE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -113,7 +113,20 @@ async def test_wq_importer_operators_renders_one_page_per_operator(tmp_path: Pat
     page = parse_page(tmp_path / "operators" / "ts_mean.md")
     assert page.type.value == "operator"
     assert "Time series mean" in page.body
-    assert "managed by wq-agent" in page.body  # marker present
+    assert "managed by alphagen-agent" in page.body  # marker present
+
+
+def test_wq_importer_accepts_legacy_managed_marker(tmp_path: Path):
+    from alphagen_agent.wiki.importers.wq import _write_if_new_or_managed
+
+    target = tmp_path / "legacy.md"
+    target.write_text(
+        "<!-- managed by wq-agent wiki import-wq; manual edits below -->\nold",
+        encoding="utf-8",
+    )
+
+    assert _write_if_new_or_managed(target, "new") is True
+    assert target.read_text(encoding="utf-8") == "new"
 
 
 @pytest.mark.asyncio

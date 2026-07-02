@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS alpha_pnl (
 
 
 class Database:
-    def __init__(self, db_path: str = "./wq_agent.db"):
+    def __init__(self, db_path: str = "./alphagen_agent.db"):
         self.db_path = db_path
         self._conn: aiosqlite.Connection | None = None
 

@@ -2,7 +2,7 @@
 
 ## Our Standard
 
-wq-agent should be a practical, respectful place to collaborate. Participants
+AlphaGen Agent should be a practical, respectful place to collaborate. Participants
 are expected to:
 
 - Be welcoming to people with different backgrounds and experience levels.

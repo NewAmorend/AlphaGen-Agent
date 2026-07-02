@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve wq-agent. This project is a Python CLI/TUI harness
+Thanks for helping improve AlphaGen Agent. This project is a Python CLI/TUI harness
 for generating, backtesting, evaluating, and curating WorldQuant-style alpha
 research workflows.
 

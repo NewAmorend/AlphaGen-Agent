@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from wq_agent.config import Settings
-from wq_agent.engine.evaluator import AlphaEvaluator
-from wq_agent.models import BacktestResult, QualityGrade
+from alphagen_agent.config import Settings
+from alphagen_agent.engine.evaluator import AlphaEvaluator
+from alphagen_agent.models import BacktestResult, QualityGrade
 
 
 @pytest.fixture

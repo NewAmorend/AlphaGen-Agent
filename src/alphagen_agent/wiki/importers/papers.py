@@ -14,7 +14,8 @@ from loguru import logger
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ARXIV_ID_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/([0-9a-zA-Z\.\-_/]+?)(?:v\d+)?(?:\.pdf)?(?:\?.*)?$", re.I)
 _SSRN_ID_RE = re.compile(r"ssrn(?:\.com)?/.+?(?:abstract_?id=|abstract=)(\d+)", re.I)
-_MANAGED_MARKER = "<!-- managed by wq-agent wiki import-paper; manual edits below -->"
+_MANAGED_MARKER = "<!-- managed by alphagen-agent wiki import-paper; manual edits below -->"
+_LEGACY_MANAGED_MARKER = "<!-- managed by wq-agent wiki import-paper; manual edits below -->"
 
 
 def slugify(text: str, max_len: int = 80) -> str:
@@ -130,7 +131,7 @@ async def fetch_ssrn(abstract_id: str, client: httpx.AsyncClient | None = None) 
     own = client is None
     cli = client or httpx.AsyncClient(
         timeout=30.0,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; wq-agent paper importer)"},
+        headers={"User-Agent": "Mozilla/5.0 (compatible; alphagen-agent paper importer)"},
         follow_redirects=True,
     )
     try:
@@ -237,7 +238,7 @@ class PaperImporter:
         content = record.to_page(tags)
         if path.exists():
             existing = path.read_text(encoding="utf-8", errors="replace")
-            if _MANAGED_MARKER not in existing:
+            if not any(marker in existing for marker in (_MANAGED_MARKER, _LEGACY_MANAGED_MARKER)):
                 logger.info(f"Refusing to overwrite manually-edited {path}")
                 return path
         path.write_text(content, encoding="utf-8")

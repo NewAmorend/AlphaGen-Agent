@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     SELF_CORR_SHARPE_MARGIN: float = 0.10   # sharpe 超越豁免线（高 10% 则 WQ 仍收）
     SELF_CORR_MIN_OVERLAP: int = 60         # 两向量重叠不足此天数则跳过（判"未知"）
 
-    DB_PATH: str = "./wq_agent.db"
+    DB_PATH: str = "./alphagen_agent.db"
 
     WIKI_DIR: str = "./wiki"
     WIKI_RETRIEVE_TOP_K: int = 5

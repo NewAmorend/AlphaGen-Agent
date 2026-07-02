@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS alpha_pnl (
 ### 4. 接入点
 - **refine 前**（Level 2）：`batch_produce` 选候选前调 `screen(candidates)`。
 - **submittable 列举前**（Level 1）：`screen(high_candidates)`。
-- **CLI**：`wq-agent screen-corr [--candidates | --high | --all]` 手动跑。
+- **CLI**：`alphagen-agent screen-corr [--candidates | --high | --all]` 手动跑。
 
 ## 数据流
 

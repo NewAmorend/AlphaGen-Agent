@@ -7,12 +7,12 @@ Before opening an issue:
 ```bash
 ruff check src tests
 pytest
-wq-agent status
+alphagen-agent status
 ```
 
 When asking for help, include:
 
-- wq-agent version or commit.
+- alphagen-agent version or commit.
 - Python version and operating system.
 - The command you ran.
 - Expected behavior.

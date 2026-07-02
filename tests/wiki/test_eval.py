@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from wq_agent.wiki.embeddings import NoOpEmbeddingProvider
-from wq_agent.wiki.eval import GoldenQuery, evaluate_retriever, load_golden_queries
-from wq_agent.wiki.index import WikiIndex
-from wq_agent.wiki.store import WikiStore
-from wq_agent.db import Database
+from alphagen_agent.wiki.embeddings import NoOpEmbeddingProvider
+from alphagen_agent.wiki.eval import GoldenQuery, evaluate_retriever, load_golden_queries
+from alphagen_agent.wiki.index import WikiIndex
+from alphagen_agent.wiki.store import WikiStore
+from alphagen_agent.db import Database
 
 
 @pytest.mark.asyncio
