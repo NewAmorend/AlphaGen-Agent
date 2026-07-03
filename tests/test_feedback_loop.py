@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from wq_agent.db import Database
-from wq_agent.generator.llm import LLMAlphaGenerator
-from wq_agent.models import (
+from alphagen_agent.db import Database
+from alphagen_agent.generator.llm import LLMAlphaGenerator
+from alphagen_agent.models import (
     AlphaRecord,
     AlphaStatus,
     BacktestResult,

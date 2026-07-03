@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from wq_agent.wiki.schema import PageType, parse_page
-from wq_agent.wiki.store import CompositeWikiStore, WikiStore
+from alphagen_agent.wiki.schema import PageType, parse_page
+from alphagen_agent.wiki.store import CompositeWikiStore, WikiStore
 
 
 def test_parse_page_extracts_frontmatter_and_links(wiki_root: Path):

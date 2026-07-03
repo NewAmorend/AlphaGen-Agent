@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from wq_agent.config import Settings
-from wq_agent.llm import AnthropicProvider, LLMFactory, OpenAICompatibleProvider
-from wq_agent.llm.factory import PROTOCOL_PROVIDER_OPTIONS
+from alphagen_agent.config import Settings
+from alphagen_agent.llm import AnthropicProvider, LLMFactory, OpenAICompatibleProvider
+from alphagen_agent.llm.factory import PROTOCOL_PROVIDER_OPTIONS
 
 
 class _Resp:

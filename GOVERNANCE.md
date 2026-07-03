@@ -1,6 +1,6 @@
 # Governance
 
-wq-agent currently uses a maintainer-led governance model.
+AlphaGen Agent currently uses a maintainer-led governance model.
 
 ## Roles
 

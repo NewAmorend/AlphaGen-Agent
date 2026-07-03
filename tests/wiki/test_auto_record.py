@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from wq_agent.models import AlphaRecord, BacktestResult, GenerationStrategy, QualityGrade
-from wq_agent.wiki.auto_record import AutoRecorder
-from wq_agent.wiki.store import WikiStore
+from alphagen_agent.models import AlphaRecord, BacktestResult, GenerationStrategy, QualityGrade
+from alphagen_agent.wiki.auto_record import AutoRecorder
+from alphagen_agent.wiki.store import WikiStore
 
 
 class _NoopIndex:

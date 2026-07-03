@@ -5,7 +5,7 @@ import asyncio
 import httpx
 import pytest
 
-from wq_agent.llm.base import chat_completion_with_retry
+from alphagen_agent.llm.base import chat_completion_with_retry
 
 
 class _Resp:

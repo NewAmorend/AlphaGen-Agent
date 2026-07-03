@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 
-from wq_agent.generator.llm import (
+from alphagen_agent.generator.llm import (
     LLMAlphaGenerator,
     build_proven_wrappers_section,
     overrepresented_families,

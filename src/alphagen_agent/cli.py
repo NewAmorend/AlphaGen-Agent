@@ -16,8 +16,8 @@ from .models import GenerationStrategy, AlphaStatus
 from .agent.orchestrator import Orchestrator
 
 app = typer.Typer(
-    name="wq-agent",
-    help="WorldQuant Alpha Generation & Backtesting Agent Harness",
+    name="alphagen-agent",
+    help="AlphaGen Agent — WorldQuant alpha generation and backtesting harness",
     add_completion=False,
 )
 wiki_app = typer.Typer(name="wiki", help="Quant Wiki maintenance commands", add_completion=False)
@@ -26,12 +26,12 @@ console = Console()
 
 
 def _resource_path(name: str):
-    packaged = resources.files("wq_agent").joinpath("resources", name)
+    packaged = resources.files("alphagen_agent").joinpath("resources", name)
     if packaged.is_dir() or packaged.is_file():
         return packaged
 
     # Editable/source checkout fallback. In a wheel, hatch maps these files under
-    # wq_agent/resources; in a checkout, they still live at the repository root.
+    # alphagen_agent/resources; in a checkout, they still live at the repository root.
     source_root = Path(__file__).resolve().parents[2]
     fallback = source_root / name
     if fallback.exists():
@@ -110,7 +110,7 @@ def _setup_logging(verbose: bool = False) -> None:
     level = "DEBUG" if verbose else "INFO"
     logger.remove()
     logger.add(sys.stderr, level=level, format="<level>{time:HH:mm:ss}</level> | <level>{message}</level>")
-    logger.add("wq_agent.log", level="DEBUG", rotation="10 MB")
+    logger.add("alphagen_agent.log", level="DEBUG", rotation="10 MB")
 
 
 def _load_user_idea(idea: Optional[str], idea_file: Optional[Path]) -> str | None:
@@ -403,7 +403,7 @@ def status(
         try:
             await orch.initialize()
             stats = await orch.status()
-            table = Table(title="WQ Agent Status")
+            table = Table(title="AlphaGen Agent Status")
             table.add_column("Metric", style="cyan")
             table.add_column("Count", justify="right")
             for key, val in stats.items():
@@ -553,8 +553,8 @@ def submittable(
                     r["wq_alpha_id"] or "—",
                 )
             console.print(table)
-            console.print("\n[dim]Tip: run [bold]wq-agent submit <ID>[/bold] to mark as submitted, "
-                          "or [bold]wq-agent sync-submitted[/bold] to pull real status from WQ Brain.[/dim]")
+            console.print("\n[dim]Tip: run [bold]alphagen-agent submit <ID>[/bold] to mark as submitted, "
+                          "or [bold]alphagen-agent sync-submitted[/bold] to pull real status from WQ Brain.[/dim]")
         finally:
             await db.close()
 
@@ -569,7 +569,7 @@ def submit(
     """Mark a local alpha as SUBMITTED (local bookkeeping only).
 
     Does not call WQ Brain API — submit via the WQ web UI yourself, then run this
-    to update local state. Use [bold]wq-agent sync-submitted[/bold] to pull real
+    to update local state. Use [bold]alphagen-agent sync-submitted[/bold] to pull real
     state from WQ Brain instead of marking one-by-one.
     """
     _setup_logging(verbose)

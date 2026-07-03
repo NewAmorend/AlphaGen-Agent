@@ -4,12 +4,12 @@ from datetime import datetime
 
 import pytest
 
-from wq_agent.config import Settings
-from wq_agent.db import Database
-from wq_agent.engine.backtest import BacktestEngine
-from wq_agent.generator.factor import FactorMiningGenerator
-from wq_agent.generator.template import TemplateAlphaGenerator
-from wq_agent.models import (
+from alphagen_agent.config import Settings
+from alphagen_agent.db import Database
+from alphagen_agent.engine.backtest import BacktestEngine
+from alphagen_agent.generator.factor import FactorMiningGenerator
+from alphagen_agent.generator.template import TemplateAlphaGenerator
+from alphagen_agent.models import (
     AlphaRecord,
     AlphaStatus,
     BacktestResult,

@@ -4,9 +4,9 @@ from datetime import datetime
 
 import pytest
 
-from wq_agent.db import Database
-from wq_agent.generator.llm import LLMAlphaGenerator
-from wq_agent.models import AlphaRecord, BacktestResult, GenerationStrategy
+from alphagen_agent.db import Database
+from alphagen_agent.generator.llm import LLMAlphaGenerator
+from alphagen_agent.models import AlphaRecord, BacktestResult, GenerationStrategy
 
 
 # --------------------------------------------------------------------------- #1
@@ -63,7 +63,7 @@ async def test_get_low_fitness_skeletons(tmp_path):
 
         low = await db.get_low_fitness_skeletons(max_fitness=0.3)
 
-        from wq_agent.db import expression_skeleton
+        from alphagen_agent.db import expression_skeleton
         skel_a = expression_skeleton("rank(ts_delta(fnd6_assets, 20))")
         skel_b = expression_skeleton("ts_decay_linear(rank(close), 5)")
         assert skel_a in low

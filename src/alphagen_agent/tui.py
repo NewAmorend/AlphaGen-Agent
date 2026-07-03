@@ -58,8 +58,8 @@ class _TuiConsole:
             self.write(text)
 
 
-class WQAgentTui(App[None]):
-    """Keyboard-first terminal workbench for common wq-agent flows."""
+class AlphaGenAgentTui(App[None]):
+    """Keyboard-first terminal workbench for common AlphaGen Agent flows."""
 
     CSS = """
     Screen {
@@ -135,7 +135,7 @@ class WQAgentTui(App[None]):
         ("l", "refresh", "List"),
     ]
 
-    TITLE = "wq-agent"
+    TITLE = "AlphaGen Agent"
     SUB_TITLE = "alpha research workbench"
 
     def __init__(self) -> None:
@@ -146,7 +146,7 @@ class WQAgentTui(App[None]):
         yield Header(show_clock=True)
         with Horizontal(id="workspace"):
             with Vertical(id="sidebar"):
-                yield Static("wq-agent", classes="label")
+                yield Static("AlphaGen Agent", classes="label")
                 yield Static("Generate, test, refine. Keep the loop tight.", classes="hint")
                 yield Static("Strategy", classes="label")
                 yield Select(_STRATEGIES, value=GenerationStrategy.LLM.value, id="strategy")
@@ -172,7 +172,7 @@ class WQAgentTui(App[None]):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.write_log("[bold cyan]wq-agent TUI ready[/bold cyan]")
+        self.write_log("[bold cyan]AlphaGen Agent TUI ready[/bold cyan]")
         self.write_log("Use buttons or keys: g generate, r run, f refine, b backtest, ctrl+r refresh, q quit.")
         await self.refresh_dashboard()
 
@@ -381,4 +381,4 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def run_tui() -> None:
-    WQAgentTui().run()
+    AlphaGenAgentTui().run()
