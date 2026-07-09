@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from wq_agent.wiki.embeddings import (
+from alphagen_agent.wiki.embeddings import (
     LocalEmbeddingProvider,
     NoOpEmbeddingProvider,
     make_embedding_provider,

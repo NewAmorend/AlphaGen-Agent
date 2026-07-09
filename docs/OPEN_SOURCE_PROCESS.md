@@ -1,6 +1,6 @@
 # Open Source Process
 
-This document describes the normal project flow for wq-agent.
+This document describes the normal project flow for AlphaGen Agent.
 
 ## Public Repository Boundary
 
@@ -13,7 +13,7 @@ Public:
 Private:
 
 - `.env`, credentials, tokens, session data
-- `wq_agent.db`, generated SQLite files, and logs
+- `alphagen_agent.db`, generated SQLite files, and logs
 - `wiki/` contents, including imported docs, dictionaries, benches, papers, entries, and lessons
 - `private_wiki/`
 - Local agent/editor folders such as `.claude/` and `.codex/`
@@ -104,12 +104,12 @@ documentation-only pull request is enough for a smoke test.
 Suggested smoke test:
 
 ```bash
-python -m venv /tmp/wq-agent-smoke
-source /tmp/wq-agent-smoke/bin/activate
-pip install dist/wq_agent-*.whl
-wq-agent --help
-mkdir /tmp/wq-agent-workspace
-wq-agent init /tmp/wq-agent-workspace
+python -m venv /tmp/alphagen-agent-smoke
+source /tmp/alphagen-agent-smoke/bin/activate
+pip install dist/alphagen_agent-*.whl
+alphagen-agent --help
+mkdir /tmp/alphagen-agent-workspace
+alphagen-agent init /tmp/alphagen-agent-workspace
 ```
 
 ## Security Flow

@@ -23,7 +23,7 @@ Include:
 This project is designed for public code plus private research. Never include:
 
 - `.env`, API keys, credentials, or session tokens.
-- `wq_agent.db` or other local SQLite databases.
+- `alphagen_agent.db` or other local SQLite databases.
 - `*.log` files that may contain prompts, responses, alpha expressions, account
   identifiers, or API responses.
 - `private_wiki/`, `wiki/entries/`, or `wiki/lessons/` content unless you have

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from wq_agent.engine.fast_expr import validate_fast_expr
-from wq_agent.generator.llm import LLMAlphaGenerator
-from wq_agent.llm.base import BaseLLMProvider
+from alphagen_agent.engine.fast_expr import validate_fast_expr
+from alphagen_agent.generator.llm import LLMAlphaGenerator
+from alphagen_agent.llm.base import BaseLLMProvider
 
 
 class _DummyLLM(BaseLLMProvider):

@@ -8,7 +8,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-MARKER = "<!-- wq-agent:zhipu-ai-review -->"
+MARKER = "<!-- alphagen-agent:zhipu-ai-review -->"
+LEGACY_MARKER = "<!-- wq-agent:zhipu-ai-review -->"
 DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
 DEFAULT_MODEL = "glm-4-flash"
 MAX_DIFF_CHARS = 50_000
@@ -138,7 +139,14 @@ def list_comments(repo: str, issue_number: int) -> list[dict[str, Any]]:
 
 def upsert_comment(repo: str, issue_number: int, body: str) -> None:
     comments = list_comments(repo, issue_number)
-    existing = next((c for c in comments if MARKER in str(c.get("body", ""))), None)
+    existing = next(
+        (
+            c
+            for c in comments
+            if any(marker in str(c.get("body", "")) for marker in (MARKER, LEGACY_MARKER))
+        ),
+        None,
+    )
     if existing:
         github_request("PATCH", existing["url"], data={"body": body})
         return

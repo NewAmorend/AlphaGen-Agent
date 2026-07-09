@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from wq_agent.wiki.embeddings import BaseEmbeddingProvider
-from wq_agent.wiki.retrieve.graph import GraphChannel
-from wq_agent.wiki.retrieve.grep import GrepChannel
-from wq_agent.wiki.retrieve.hybrid import HybridRetriever
-from wq_agent.wiki.retrieve.vector import VectorChannel
-from wq_agent.wiki.store import WikiStore
-from wq_agent.wiki.tokenize import Tokenizer
+from alphagen_agent.wiki.embeddings import BaseEmbeddingProvider
+from alphagen_agent.wiki.retrieve.graph import GraphChannel
+from alphagen_agent.wiki.retrieve.grep import GrepChannel
+from alphagen_agent.wiki.retrieve.hybrid import HybridRetriever
+from alphagen_agent.wiki.retrieve.vector import VectorChannel
+from alphagen_agent.wiki.store import WikiStore
+from alphagen_agent.wiki.tokenize import Tokenizer
 
 
 def _tokenizer(root: Path) -> Tokenizer:
@@ -55,7 +55,7 @@ def test_grep_search_is_fast_on_large_wiki(tmp_path: Path):
     import time
     from datetime import date
 
-    from wq_agent.wiki.schema import Page, PageType
+    from alphagen_agent.wiki.schema import Page, PageType
 
     pages: list[Page] = []
     for i in range(1500):
@@ -83,7 +83,7 @@ def test_graph_handles_large_boilerplate_wiki_without_blowup(tmp_path: Path):
     import time
     from datetime import date
 
-    from wq_agent.wiki.schema import Page, PageType
+    from alphagen_agent.wiki.schema import Page, PageType
 
     pages: list[Page] = []
     for i in range(1500):

@@ -12,12 +12,12 @@
 
 ## File Structure
 
-- **Modify** `src/wq_agent/config.py` — 3 new settings.
-- **Modify** `src/wq_agent/db.py` — `alpha_pnl` cache table + `get_cached_pnl`/`upsert_pnl`/`list_reference_alphas`.
-- **Modify** `src/wq_agent/wq/client.py` — `get_pnl()`.
-- **Create** `src/wq_agent/engine/correlation.py` — pure helpers (`parse_pnl_response`, `pearson`, `align`, `max_correlation`, `is_hard_redundant`) + `CorrelationScreener`.
+- **Modify** `src/alphagen_agent/config.py` — 3 new settings.
+- **Modify** `src/alphagen_agent/db.py` — `alpha_pnl` cache table + `get_cached_pnl`/`upsert_pnl`/`list_reference_alphas`.
+- **Modify** `src/alphagen_agent/wq/client.py` — `get_pnl()`.
+- **Create** `src/alphagen_agent/engine/correlation.py` — pure helpers (`parse_pnl_response`, `pearson`, `align`, `max_correlation`, `is_hard_redundant`) + `CorrelationScreener`.
 - **Modify** `scripts/batch_produce.py` — screen refine candidates.
-- **Modify** `src/wq_agent/cli.py` — `screen-corr` command.
+- **Modify** `src/alphagen_agent/cli.py` — `screen-corr` command.
 - **Create** `tests/test_correlation.py` — all unit tests (fake WQ client, tmp db).
 
 All test runs in this plan use:
@@ -28,7 +28,7 @@ All test runs in this plan use:
 ## Task 1: Config settings
 
 **Files:**
-- Modify: `src/wq_agent/config.py` (after the `DEDUP_FITNESS_FLOOR` block, ~line 38)
+- Modify: `src/alphagen_agent/config.py` (after the `DEDUP_FITNESS_FLOOR` block, ~line 38)
 - Test: `tests/test_correlation.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -36,7 +36,7 @@ All test runs in this plan use:
 ```python
 # tests/test_correlation.py
 from __future__ import annotations
-from wq_agent.config import Settings
+from alphagen_agent.config import Settings
 
 
 def test_self_corr_settings_defaults():
@@ -53,7 +53,7 @@ Expected: FAIL — `AttributeError: 'Settings' object has no attribute 'SELF_COR
 
 - [ ] **Step 3: Add the settings**
 
-In `src/wq_agent/config.py`, immediately after the existing line `DEDUP_FITNESS_FLOOR: float = 0.3`:
+In `src/alphagen_agent/config.py`, immediately after the existing line `DEDUP_FITNESS_FLOOR: float = 0.3`:
 
 ```python
     # PnL 收益相关性防重复（gap #4）
@@ -69,7 +69,7 @@ Run: same as Step 2. Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/wq_agent/config.py tests/test_correlation.py
+git add src/alphagen_agent/config.py tests/test_correlation.py
 git commit -m "feat(corr): add self-correlation dedup settings"
 ```
 
@@ -78,7 +78,7 @@ git commit -m "feat(corr): add self-correlation dedup settings"
 ## Task 2: PnL cache table + accessors
 
 **Files:**
-- Modify: `src/wq_agent/db.py` (add table to `_SCHEMA` ~line 145; add methods near `update_backtest_checks` ~line 737)
+- Modify: `src/alphagen_agent/db.py` (add table to `_SCHEMA` ~line 145; add methods near `update_backtest_checks` ~line 737)
 - Test: `tests/test_correlation.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -86,7 +86,7 @@ git commit -m "feat(corr): add self-correlation dedup settings"
 ```python
 # add to tests/test_correlation.py
 import pytest
-from wq_agent.db import Database
+from alphagen_agent.db import Database
 
 
 @pytest.mark.asyncio
@@ -112,7 +112,7 @@ Expected: FAIL — `AttributeError: 'Database' object has no attribute 'get_cach
 
 - [ ] **Step 3a: Add the table to `_SCHEMA`**
 
-In `src/wq_agent/db.py`, inside the `_SCHEMA = """..."""` string, after the `field_blacklist` table (before the closing `"""` at ~line 146):
+In `src/alphagen_agent/db.py`, inside the `_SCHEMA = """..."""` string, after the `field_blacklist` table (before the closing `"""` at ~line 146):
 
 ```sql
 CREATE TABLE IF NOT EXISTS alpha_pnl (
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS alpha_pnl (
 
 - [ ] **Step 3b: Add the accessor methods**
 
-In `src/wq_agent/db.py`, immediately after `update_backtest_checks` (~line 748), add:
+In `src/alphagen_agent/db.py`, immediately after `update_backtest_checks` (~line 748), add:
 
 ```python
     async def get_cached_pnl(self, alpha_id: int) -> tuple[list[str], list[float]] | None:
@@ -168,7 +168,7 @@ Run: same as Step 2. Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/wq_agent/db.py tests/test_correlation.py
+git add src/alphagen_agent/db.py tests/test_correlation.py
 git commit -m "feat(corr): add alpha_pnl cache table + accessors"
 ```
 
@@ -177,7 +177,7 @@ git commit -m "feat(corr): add alpha_pnl cache table + accessors"
 ## Task 3: Reference-set query (submitted + HIGH)
 
 **Files:**
-- Modify: `src/wq_agent/db.py` (add method after `upsert_pnl`)
+- Modify: `src/alphagen_agent/db.py` (add method after `upsert_pnl`)
 - Test: `tests/test_correlation.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -185,7 +185,7 @@ git commit -m "feat(corr): add alpha_pnl cache table + accessors"
 ```python
 # add to tests/test_correlation.py
 from datetime import datetime
-from wq_agent.models import AlphaRecord, BacktestResult, GenerationStrategy, AlphaStatus, QualityGrade
+from alphagen_agent.models import AlphaRecord, BacktestResult, GenerationStrategy, AlphaStatus, QualityGrade
 
 
 async def _seed_alpha(db, expr, grade, sharpe, wq_id, status=AlphaStatus.GENERATED):
@@ -222,7 +222,7 @@ Expected: FAIL — `AttributeError: 'Database' object has no attribute 'list_ref
 
 - [ ] **Step 3: Add the method**
 
-In `src/wq_agent/db.py`, after `upsert_pnl`:
+In `src/alphagen_agent/db.py`, after `upsert_pnl`:
 
 ```python
     async def list_reference_alphas(self) -> dict[str, list[dict[str, Any]]]:
@@ -254,7 +254,7 @@ Run: same as Step 2. Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/wq_agent/db.py tests/test_correlation.py
+git add src/alphagen_agent/db.py tests/test_correlation.py
 git commit -m "feat(corr): add reference-set query (submitted + HIGH)"
 ```
 
@@ -263,8 +263,8 @@ git commit -m "feat(corr): add reference-set query (submitted + HIGH)"
 ## Task 4: WQ client `get_pnl` + PnL parser
 
 **Files:**
-- Create: `src/wq_agent/engine/correlation.py` (parser only for now)
-- Modify: `src/wq_agent/wq/client.py` (add `get_pnl`)
+- Create: `src/alphagen_agent/engine/correlation.py` (parser only for now)
+- Modify: `src/alphagen_agent/wq/client.py` (add `get_pnl`)
 - Test: `tests/test_correlation.py`
 
 > **VERIFY-AT-RUNTIME:** The exact `/alphas/{id}/recordsets/pnl` response shape is not yet
@@ -277,7 +277,7 @@ git commit -m "feat(corr): add reference-set query (submitted + HIGH)"
 
 ```python
 # add to tests/test_correlation.py
-from wq_agent.engine.correlation import parse_pnl_response
+from alphagen_agent.engine.correlation import parse_pnl_response
 
 
 def test_parse_pnl_response_diffs_to_daily_returns():
@@ -299,11 +299,11 @@ def test_parse_pnl_response_skips_malformed():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `PYTHONPATH=src /home/agentuser/wq-agent/.venv/bin/python -m pytest tests/test_correlation.py::test_parse_pnl_response_diffs_to_daily_returns -v -p no:cacheprovider`
-Expected: FAIL — `ModuleNotFoundError: No module named 'wq_agent.engine.correlation'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'alphagen_agent.engine.correlation'`
 
 - [ ] **Step 3a: Create the parser module**
 
-Create `src/wq_agent/engine/correlation.py`:
+Create `src/alphagen_agent/engine/correlation.py`:
 
 ```python
 from __future__ import annotations
@@ -335,7 +335,7 @@ def parse_pnl_response(data: dict) -> tuple[list[str], list[float]]:
 
 - [ ] **Step 3b: Add `get_pnl` to the WQ client**
 
-In `src/wq_agent/wq/client.py`, after `get_alpha_check` (~line 392), add:
+In `src/alphagen_agent/wq/client.py`, after `get_alpha_check` (~line 392), add:
 
 ```python
     async def get_pnl(self, wq_alpha_id: str) -> tuple[list[str], list[float]] | None:
@@ -366,7 +366,7 @@ Expected: PASS (both parser tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/wq_agent/engine/correlation.py src/wq_agent/wq/client.py tests/test_correlation.py
+git add src/alphagen_agent/engine/correlation.py src/alphagen_agent/wq/client.py tests/test_correlation.py
 git commit -m "feat(corr): add PnL parser + WQ get_pnl endpoint"
 ```
 
@@ -375,14 +375,14 @@ git commit -m "feat(corr): add PnL parser + WQ get_pnl endpoint"
 ## Task 5: Pure math — `pearson` + `align`
 
 **Files:**
-- Modify: `src/wq_agent/engine/correlation.py`
+- Modify: `src/alphagen_agent/engine/correlation.py`
 - Test: `tests/test_correlation.py`
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # add to tests/test_correlation.py
-from wq_agent.engine.correlation import pearson, align
+from alphagen_agent.engine.correlation import pearson, align
 
 
 def test_pearson_basic():
@@ -407,7 +407,7 @@ Expected: FAIL — `ImportError: cannot import name 'pearson'`
 
 - [ ] **Step 3: Implement `pearson` + `align`**
 
-Append to `src/wq_agent/engine/correlation.py`:
+Append to `src/alphagen_agent/engine/correlation.py`:
 
 ```python
 def pearson(a: list[float], b: list[float]) -> float:
@@ -446,7 +446,7 @@ Run: same as Step 2. Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/wq_agent/engine/correlation.py tests/test_correlation.py
+git add src/alphagen_agent/engine/correlation.py tests/test_correlation.py
 git commit -m "feat(corr): add pearson + date-alignment helpers"
 ```
 
@@ -455,14 +455,14 @@ git commit -m "feat(corr): add pearson + date-alignment helpers"
 ## Task 6: Decision logic — `max_correlation` + `is_hard_redundant`
 
 **Files:**
-- Modify: `src/wq_agent/engine/correlation.py`
+- Modify: `src/alphagen_agent/engine/correlation.py`
 - Test: `tests/test_correlation.py`
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # add to tests/test_correlation.py
-from wq_agent.engine.correlation import max_correlation, is_hard_redundant
+from alphagen_agent.engine.correlation import max_correlation, is_hard_redundant
 
 
 def test_max_correlation_picks_strongest_with_enough_overlap():
@@ -507,7 +507,7 @@ Expected: FAIL — `ImportError: cannot import name 'max_correlation'`
 
 - [ ] **Step 3: Implement both**
 
-Append to `src/wq_agent/engine/correlation.py`:
+Append to `src/alphagen_agent/engine/correlation.py`:
 
 ```python
 def max_correlation(
@@ -555,7 +555,7 @@ Run: same as Step 2. Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/wq_agent/engine/correlation.py tests/test_correlation.py
+git add src/alphagen_agent/engine/correlation.py tests/test_correlation.py
 git commit -m "feat(corr): add max-correlation + hard-gate decision rule"
 ```
 
@@ -564,15 +564,15 @@ git commit -m "feat(corr): add max-correlation + hard-gate decision rule"
 ## Task 7: `CorrelationScreener.ensure_pnl` (lazy cache)
 
 **Files:**
-- Modify: `src/wq_agent/engine/correlation.py`
+- Modify: `src/alphagen_agent/engine/correlation.py`
 - Test: `tests/test_correlation.py`
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # add to tests/test_correlation.py
-from wq_agent.engine.correlation import CorrelationScreener
-from wq_agent.config import Settings
+from alphagen_agent.engine.correlation import CorrelationScreener
+from alphagen_agent.config import Settings
 
 
 class _FakeWQ:
@@ -614,7 +614,7 @@ Expected: FAIL — `ImportError: cannot import name 'CorrelationScreener'`
 
 - [ ] **Step 3: Add the class skeleton + `ensure_pnl`**
 
-Append to `src/wq_agent/engine/correlation.py`:
+Append to `src/alphagen_agent/engine/correlation.py`:
 
 ```python
 from dataclasses import dataclass
@@ -664,7 +664,7 @@ Run: same as Step 2. Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/wq_agent/engine/correlation.py tests/test_correlation.py
+git add src/alphagen_agent/engine/correlation.py tests/test_correlation.py
 git commit -m "feat(corr): add CorrelationScreener.ensure_pnl lazy cache"
 ```
 
@@ -673,7 +673,7 @@ git commit -m "feat(corr): add CorrelationScreener.ensure_pnl lazy cache"
 ## Task 8: `CorrelationScreener.screen` — verdicts + write FAIL
 
 **Files:**
-- Modify: `src/wq_agent/engine/correlation.py`
+- Modify: `src/alphagen_agent/engine/correlation.py`
 - Test: `tests/test_correlation.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -724,7 +724,7 @@ Expected: FAIL — `AttributeError: 'CorrelationScreener' object has no attribut
 
 - [ ] **Step 3: Implement `screen` + helpers**
 
-Append these methods inside `CorrelationScreener` in `src/wq_agent/engine/correlation.py`:
+Append these methods inside `CorrelationScreener` in `src/alphagen_agent/engine/correlation.py`:
 
 ```python
     async def _load_refs(self, ref_rows: list[dict]) -> list[dict]:
@@ -790,7 +790,7 @@ Expected: ALL PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/wq_agent/engine/correlation.py tests/test_correlation.py
+git add src/alphagen_agent/engine/correlation.py tests/test_correlation.py
 git commit -m "feat(corr): add screen() verdicts + write local SELF_CORRELATION FAIL"
 ```
 
@@ -814,7 +814,7 @@ In `scripts/batch_produce.py`, locate the refine pass loop. Replace the block:
 with:
 
 ```python
-        from wq_agent.engine.correlation import CorrelationScreener
+        from alphagen_agent.engine.correlation import CorrelationScreener
         screener = CorrelationScreener(orch.db, orch.wq, orch.settings)
         for p in range(1, refine_passes + 1):
             cands = await orch.db.list_refine_candidates(limit=100)
@@ -847,11 +847,11 @@ git commit -m "feat(corr): screen refine candidates by PnL correlation before re
 ## Task 10: `screen-corr` CLI command
 
 **Files:**
-- Modify: `src/wq_agent/cli.py` (add a command near `submittable`, ~line 357)
+- Modify: `src/alphagen_agent/cli.py` (add a command near `submittable`, ~line 357)
 
 - [ ] **Step 1: Add the command**
 
-In `src/wq_agent/cli.py`, add a new command (place it right before the `submittable` command definition):
+In `src/alphagen_agent/cli.py`, add a new command (place it right before the `submittable` command definition):
 
 ```python
 @app.command(name="screen-corr")
@@ -897,7 +897,7 @@ def screen_corr(
 
 - [ ] **Step 2: Smoke-check the command registers**
 
-Run: `PYTHONPATH=src /home/agentuser/wq-agent/.venv/bin/python -m wq_agent.cli screen-corr --help`
+Run: `PYTHONPATH=src /home/agentuser/wq-agent/.venv/bin/python -m alphagen_agent.cli screen-corr --help`
 Expected: usage text for `screen-corr` prints, exit 0
 
 - [ ] **Step 3: Run full suite + lint**
@@ -905,13 +905,13 @@ Expected: usage text for `screen-corr` prints, exit 0
 Run: `PYTHONPATH=src /home/agentuser/wq-agent/.venv/bin/python -m pytest -q -p no:cacheprovider`
 Expected: ALL PASS
 
-Run: `/home/agentuser/wq-agent/.venv/bin/ruff check src/wq_agent/engine/correlation.py src/wq_agent/cli.py src/wq_agent/db.py src/wq_agent/wq/client.py src/wq_agent/config.py scripts/batch_produce.py tests/test_correlation.py`
+Run: `/home/agentuser/wq-agent/.venv/bin/ruff check src/alphagen_agent/engine/correlation.py src/alphagen_agent/cli.py src/alphagen_agent/db.py src/alphagen_agent/wq/client.py src/alphagen_agent/config.py scripts/batch_produce.py tests/test_correlation.py`
 Expected: All checks passed
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/wq_agent/cli.py
+git add src/alphagen_agent/cli.py
 git commit -m "feat(corr): add screen-corr CLI command"
 ```
 
@@ -929,8 +929,8 @@ Run a one-off (replace `<WQID>` with a real submitted alpha's wq id, e.g. #606's
 cd /home/agentuser/wq-agent
 PYTHONPATH=src .venv/bin/python - <<'PY'
 import asyncio
-from wq_agent.config import get_settings
-from wq_agent.wq.client import WQClient
+from alphagen_agent.config import get_settings
+from alphagen_agent.wq.client import WQClient
 async def main():
     wq = WQClient(get_settings()); await wq.connect()
     print(await wq.get_pnl("<WQID>"))   # expect (dates, daily-returns) or None
@@ -943,7 +943,7 @@ Expected: a `(dates, returns)` tuple with hundreds of daily points. If `None` or
 
 - [ ] **Step 2: Re-screen the known case**
 
-Run: `PYTHONPATH=src .venv/bin/python -m wq_agent.cli screen-corr --scope all -v`
+Run: `PYTHONPATH=src .venv/bin/python -m alphagen_agent.cli screen-corr --scope all -v`
 Expected: `#617`-style siblings of submitted `#606` get flagged hard-redundant (corr ≈ 0.9 vs #606).
 
 - [ ] **Step 3 (no commit — verification only).**

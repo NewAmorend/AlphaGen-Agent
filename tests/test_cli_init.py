@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from wq_agent.cli import app
+from alphagen_agent.cli import app
 
 
 def test_init_copies_public_resources(tmp_path):

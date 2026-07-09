@@ -34,15 +34,15 @@ from __future__ import annotations
 import asyncio
 import sys
 
-# 让脚本能从 src/ 找到 wq_agent 包
+# 让脚本能从 src/ 找到 alphagen_agent 包
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from wq_agent.config import get_settings
-from wq_agent.db import Database
-from wq_agent.models import AlphaRecord, AlphaStatus, GenerationStrategy
-from wq_agent.wq.client import WQClient
-from wq_agent.engine.backtest import BacktestEngine
+from alphagen_agent.config import get_settings
+from alphagen_agent.db import Database
+from alphagen_agent.models import AlphaRecord, AlphaStatus, GenerationStrategy
+from alphagen_agent.wq.client import WQClient
+from alphagen_agent.engine.backtest import BacktestEngine
 
 
 RESEARCH_SEED_ALPHAS: list[tuple[str, str]] = [
@@ -108,7 +108,7 @@ async def main():
 
         print(f"=== Backtesting {len(ids)} seed alphas (max_concurrent={settings.WQ_MAX_CONCURRENT}) ===\n")
         results = await engine.backtest_batch(ids)
-        print(f"\n=== Results ===")
+        print("\n=== Results ===")
         for r in results:
             if r is None:
                 continue
