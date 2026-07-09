@@ -82,7 +82,8 @@ Repository setup:
 
 Security note: PR diffs are sent to the configured Zhipu API endpoint. Do not
 use this workflow for repositories where pull request diffs may contain secrets,
-private research, or third-party material that cannot be shared with that API.
+private research, or third-party material that cannot be shared with that API. A
+documentation-only pull request is enough for a smoke test.
 
 ## Release Flow
 
