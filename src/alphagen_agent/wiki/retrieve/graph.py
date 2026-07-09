@@ -42,6 +42,8 @@ class GraphChannel:
         for p in pages:
             rel = str(p.path).replace("\\", "/")
             self.pages_by_rel_path[rel.removesuffix(".md")] = p
+            if rel.startswith("wiki/"):
+                self.pages_by_rel_path[rel.removeprefix("wiki/").removesuffix(".md")] = p
             if "/wiki/" in rel:
                 self.pages_by_rel_path[rel.split("/wiki/", 1)[1].removesuffix(".md")] = p
         self.graph = self._build_graph(pages)

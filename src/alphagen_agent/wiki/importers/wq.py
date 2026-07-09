@@ -21,6 +21,8 @@ class WQImportStats:
     operators: int = 0
     datasets: int = 0
     fields: int = 0
+    tutorial_groups: int = 0
+    tutorial_pages: int = 0
     skipped: int = 0
 
 
@@ -194,14 +196,26 @@ class WQDocImporter:
         delay: int | None = None,
         limit_per_dataset: int | None = None,
         include_fields: bool = False,
+        include_tutorials: bool = False,
+        force_tutorials: bool = False,
     ) -> WQImportStats:
         """默认：operators + datasets（含内嵌字段列表）+ auto.txt 词典。
-        加 include_fields=True 才会额外写 7000+ 个 per-field 页面。"""
+        include_tutorials=True 时导入 Learn 文档，include_fields=True 时额外写字段页。"""
         stats = WQImportStats()
         stats.operators = await self.import_operators()
         stats.datasets = await self.import_datasets(
             region=region, universe=universe, delay=delay, embed_field_list=True,
         )
+        if include_tutorials:
+            from .wq_tutorials import WQTutorialImporter
+
+            tutorial_stats = await WQTutorialImporter(
+                wiki_root=self.wiki_root,
+                client=self.client,
+            ).import_all(force=force_tutorials)
+            stats.tutorial_groups = tutorial_stats.groups
+            stats.tutorial_pages = tutorial_stats.pages
+            stats.skipped += tutorial_stats.skipped
         if include_fields:
             stats.fields = await self.import_fields(
                 region=region, universe=universe, delay=delay, limit_per_dataset=limit_per_dataset

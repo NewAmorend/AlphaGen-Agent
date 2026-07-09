@@ -194,6 +194,7 @@ private_wiki/           # 私有自动沉淀：真实 alpha entries / lessons，
 - **词法通道**：FMM 分词（可选 `wiki/dictionary/base.txt` + `synonyms.yaml`）+ 页面正文/slug/tags/frontmatter 元数据 + IDF/Coverage 评分，纯 `0.6 * 加权 IDF 覆盖率 + 0.25 * 原始词条覆盖率`（上限 0.85）
 - **向量通道**：sqlite-vec 表 + Volcengine / zhipu Embedding，余弦排名
 - **图通道**：NetworkX 构建 wikilink + 共享标签 + 共享来源边，Louvain 社区检测 + PageRank，邻居扩展
+- **知识编译**：`wiki compile` 根据 tags / wikilinks / sources 自动生成 `wiki/hubs/*.md` 概念入口和 `wiki/typed_edges.json` 类型化关系索引
 - **融合**：所有原始词条命中或明确命中页面身份（slug/path/operator_name/field_id/dataset_id）→ priority；其余走加权 RRF（`k=60, grep:vec=7:3`）+ 图扩展
 
 ### 使用
@@ -203,8 +204,12 @@ private_wiki/           # 私有自动沉淀：真实 alpha entries / lessons，
 alphagen-agent wiki index                # 全量
 alphagen-agent wiki index --incremental  # 仅 hash 变化的页重新嵌入
 
+# 编译结构化知识层：生成 hub pages + typed_edges.json，并默认增量重建索引
+alphagen-agent wiki compile
+
 # 调试检索
 alphagen-agent wiki search "动量 反转" -k 5
+alphagen-agent wiki search "动量 反转" -k 5 --explain
 
 # 离线评估检索质量（先准备 wiki/bench/retrieval_golden.yml；否则使用内置示例查询）
 alphagen-agent wiki eval --top-k 5
@@ -230,22 +235,28 @@ alphagen-agent wiki stats
 
 ### 导入官方文档与论文
 
-WQ Brain 平台的 `/learn/documentation` 是 SPA + 需要登录态，社区论坛走 Cloudflare 也拿不到。所以走两条路：
+WQ Brain 平台的 `/learn/documentation` 是需要登录态的 SPA。项目直接复用
+`WQ_USERNAME` / `WQ_PASSWORD` 的 API 会话，不依赖图形界面或 Playwright。
 
-**1. 用项目的 WQ Brain 鉴权 API 拉官方元数据**（这是 platform UI 上"Operators / Datasets / Datafields"页面背后的数据源）：
+**1. 导入官方 Learn 教程和元数据**：
 
 ```bash
-# 拉所有 operator + dataset + field（当前 region/universe/delay），渲染成 wiki/operators/ wiki/datasets/ wiki/fields/
+# 默认导入 Learn 教程、operators、datasets 和内嵌字段清单，并增量重建索引
+# 教程写入 wiki/worldquant-docs/<section>/<page>.md
 alphagen-agent wiki import-wq
 
-# 覆盖 region / 限制字段数
-alphagen-agent wiki import-wq --region CHN --universe TOP2000 --limit-per-dataset 100
+# 教程按 lastModified 增量跳过；需要强制刷新时：
+alphagen-agent wiki import-wq --force-tutorials
 
-# 默认只拉 operators + datasets，跳过几千条 field 页；如需字段页再加 --with-fields
-alphagen-agent wiki import-wq
+# 只导入 operator / dataset 元数据，不拉 Learn 教程
+alphagen-agent wiki import-wq --no-tutorials
+
+# 默认不生成几千个独立字段页；确有需要时再开启
+alphagen-agent wiki import-wq --with-fields --limit-per-dataset 100
 ```
 
-importer 写入的页都带 `<!-- managed by alphagen-agent wiki import-wq -->` 标记，**重跑只覆盖标记还在的页**，你手改过的不动。
+importer 页面带有 `<!-- managed by alphagen-agent wiki import-wq -->` 标记。重跑只覆盖
+仍带标记的页面；移除标记后会被视为人工维护内容，不再覆盖。
 
 **2. 导入研究论文**：
 
