@@ -25,6 +25,8 @@ WorldQuant Alpha 生成与回测 Agent Harness。
 
 需要 Python 3.11+。
 
+第一次使用建议先阅读[首次运行指南](docs/GETTING_STARTED.md)，其中包含独立研究工作区、最小凭证、首次安全运行和常见问题排查。
+
 ```bash
 # 创建虚拟环境并安装
 python -m venv .venv
