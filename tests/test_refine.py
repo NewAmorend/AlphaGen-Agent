@@ -72,6 +72,30 @@ async def test_list_refine_candidates_sorts_by_fitness_desc(tmp_path):
         await db.close()
 
 
+@pytest.mark.asyncio
+async def test_list_refine_candidates_includes_critical_warning(tmp_path):
+    db = Database(str(tmp_path / "wq.db"))
+    await db.connect()
+    try:
+        aid = await db.insert_alpha(AlphaRecord(
+            expression="reverse(group_rank(ts_delta(close, 5), subindustry))",
+            strategy=GenerationStrategy.FACTOR_MINING,
+        ))
+        await db.insert_backtest_result(BacktestResult(
+            alpha_id=aid, fitness=0.70, sharpe=1.77, turnover=0.582,
+            grade=QualityGrade.MEDIUM,
+            checks=[
+                {"name": "LOW_FITNESS", "result": "WARNING"},
+                {"name": "OSMOSIS_ALLOCATION", "result": "WARNING"},
+            ],
+        ))
+
+        rows = await db.list_refine_candidates(limit=10)
+        assert rows[0]["failed_checks"] == ["LOW_FITNESS"]
+    finally:
+        await db.close()
+
+
 # ----- refine generator -----
 
 @pytest.mark.asyncio

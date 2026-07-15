@@ -9,6 +9,7 @@ from typing import Any
 import aiosqlite
 from loguru import logger
 
+from .checks import critical_check_failures
 from .models import AlphaRecord, AlphaStatus, BacktestResult, GenerationStrategy, QualityGrade
 
 
@@ -343,11 +344,7 @@ class Database:
                     checks = json.loads(checks_raw)
                 except (json.JSONDecodeError, TypeError):
                     checks = []
-            failed = [
-                str(c.get("name", ""))
-                for c in checks
-                if isinstance(c, dict) and str(c.get("result", "")).upper() == "FAIL"
-            ]
+            failed = critical_check_failures(checks)
             out.append({
                 "alpha_id": r["alpha_id"],
                 "alpha": r["expression"],
@@ -366,7 +363,7 @@ class Database:
     async def list_refine_candidates(self, limit: int = 10, low_fitness_floor: float = 0.5) -> list[dict[str, Any]]:
         """差一点就过的 alpha：MEDIUM 全部 + 高 fitness 的 LOW。按 fitness 倒序。
 
-        - MEDIUM：只差 1 项 WQ 关键检查 FAIL，refine 性价比最高
+        - MEDIUM：只差 1 项 WQ 关键检查 FAIL/WARNING，refine 性价比最高
         - LOW with fitness >= low_fitness_floor：信号已经出来（fitness 高），但有 2+ 项 check
           fail（典型是 sharpe 不达标），refine 可以同时修多项
         - REJECT 不进——信号本身就是噪声，refine 也救不回来
@@ -401,11 +398,7 @@ class Database:
                     checks = json.loads(r["checks"])
                 except (json.JSONDecodeError, TypeError):
                     pass
-            failed = [
-                str(c.get("name", ""))
-                for c in checks
-                if isinstance(c, dict) and str(c.get("result", "")).upper() == "FAIL"
-            ]
+            failed = critical_check_failures(checks)
             out.append({
                 "alpha_id": r["alpha_id"],
                 "expression": r["expression"],

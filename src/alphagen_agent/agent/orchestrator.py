@@ -6,6 +6,7 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
+from ..checks import critical_check_failures
 from ..config import Settings, get_settings
 from ..db import Database
 from ..models import (
@@ -265,11 +266,7 @@ class Orchestrator:
                 "turnover": backtest.turnover,
                 "returns": backtest.returns,
                 "grade": backtest.grade.value if backtest.grade else None,
-                "failed_checks": [
-                    str(c.get("name", ""))
-                    for c in (backtest.checks or [])
-                    if isinstance(c, dict) and str(c.get("result", "")).upper() == "FAIL"
-                ],
+                "failed_checks": critical_check_failures(backtest.checks),
             }
         else:
             candidates = await self.db.list_refine_candidates(limit=1)
