@@ -54,6 +54,29 @@ def test_only_fitness_fails_returns_medium(evaluator):
     assert evaluator.evaluate(r) is QualityGrade.MEDIUM
 
 
+def test_critical_warning_returns_medium(evaluator):
+    """完整顾问权限会把未达标的 LOW_FITNESS 返回为 WARNING。"""
+    r = _result(
+        fitness=0.70, sharpe=1.77, turnover=0.582,
+        checks=[
+            {"name": "LOW_SHARPE", "result": "PASS", "value": 1.77, "limit": 1.58},
+            {"name": "LOW_FITNESS", "result": "WARNING", "value": 0.70, "limit": 1.0},
+            {"name": "HIGH_TURNOVER", "result": "PASS", "value": 0.582, "limit": 0.7},
+            {"name": "LOW_TURNOVER", "result": "PASS", "value": 0.582, "limit": 0.01},
+        ],
+    )
+    assert evaluator.evaluate(r) is QualityGrade.MEDIUM
+
+
+def test_checks_cannot_bypass_numeric_thresholds(evaluator):
+    """WQ checks 缺少硬指标项时，本地门槛仍然生效。"""
+    r = _result(
+        fitness=0.70, sharpe=1.77, turnover=0.4,
+        checks=[{"name": "MATCHES_COMPETITION", "result": "PASS"}],
+    )
+    assert evaluator.evaluate(r) is QualityGrade.MEDIUM
+
+
 def test_two_critical_fails_returns_low(evaluator):
     r = _result(
         fitness=0.5, sharpe=0.8, turnover=0.4,
@@ -86,6 +109,18 @@ def test_only_non_critical_fails_still_high(evaluator):
             {"name": "LOW_FITNESS", "result": "PASS"},
             {"name": "LOW_SHARPE", "result": "PASS"},
             {"name": "MATCHES_COMPETITION", "result": "FAIL"},
+        ],
+    )
+    assert evaluator.evaluate(r) is QualityGrade.HIGH
+
+
+def test_only_non_critical_warnings_still_high(evaluator):
+    r = _result(
+        fitness=2.0, sharpe=1.5, turnover=0.5,
+        checks=[
+            {"name": "LOW_FITNESS", "result": "PASS"},
+            {"name": "LOW_SHARPE", "result": "PASS"},
+            {"name": "OSMOSIS_ALLOCATION", "result": "WARNING"},
         ],
     )
     assert evaluator.evaluate(r) is QualityGrade.HIGH

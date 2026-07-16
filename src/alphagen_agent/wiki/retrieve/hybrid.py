@@ -50,8 +50,14 @@ class HybridRetriever:
 
         seen: dict[str, HybridHit] = {}
 
+        grep_by_path = {str(h.page.path): h for h in grep_hits}
+        vector_by_path = {str(h.page.path): h for h in vector_hits}
+        grep_rank = {str(h.page.path): i + 1 for i, h in enumerate(grep_hits)}
+        vector_rank = {str(h.page.path): i + 1 for i, h in enumerate(vector_hits)}
+
         for h in priority:
-            self._add(seen, h.page, score=1.0 + h.score, source="priority")
+            note = self._grep_note(h, grep_rank.get(str(h.page.path)))
+            self._add(seen, h.page, score=1.0 + h.score, source="priority", note=note)
 
         # 加权 RRF
         rrf_scores: dict[str, float] = {}
@@ -73,28 +79,65 @@ class HybridRetriever:
             if page is None:
                 continue
             sources: list[str] = []
+            notes: list[str] = []
             if any(str(h.page.path) == path for h in normal_grep):
                 sources.append("grep")
+                gh = grep_by_path.get(path)
+                if gh:
+                    notes.append(self._grep_note(gh, grep_rank.get(path)))
             if any(str(h.page.path) == path for h in vector_hits):
                 sources.append("vector")
-            self._add(seen, page, score=score, source="+".join(sources) or "rrf")
+                vh = vector_by_path.get(path)
+                if vh:
+                    rank = vector_rank.get(path)
+                    notes.append(
+                        f"vector rank #{rank}, cosine={vh.score:.3f}"
+                        if rank else f"vector cosine={vh.score:.3f}"
+                    )
+            self._add(
+                seen,
+                page,
+                score=score,
+                source="+".join(sources) or "rrf",
+                note="; ".join(n for n in notes if n),
+            )
 
         # 用 hybrid top-3 作为种子做图扩展
         seeds = [hit.page.slug for hit in list(seen.values())[:3]]
         graph_hits = self.graph.expand(seeds, k=2)
         for gh in graph_hits:
-            self._add(seen, gh.page, score=gh.score, source=f"graph:{gh.reason}")
+            self._add(
+                seen,
+                gh.page,
+                score=gh.score,
+                source=f"graph:{gh.reason}",
+                note=f"graph expansion from top seeds via {gh.reason}",
+            )
 
         out = list(seen.values())
         out.sort(key=lambda h: h.score, reverse=True)
         return out[:top_k]
 
-    def _add(self, seen: dict, page: Page, score: float, source: str) -> None:
+    def _add(self, seen: dict, page: Page, score: float, source: str, note: str = "") -> None:
         key = str(page.path)
         if key in seen:
             hit = seen[key]
             hit.score += score
             if source not in hit.sources:
                 hit.sources.append(source)
+            if note and note not in hit.note:
+                hit.note = "; ".join(x for x in [hit.note, note] if x)
         else:
-            seen[key] = HybridHit(page=page, score=score, sources=[source])
+            seen[key] = HybridHit(page=page, score=score, sources=[source], note=note)
+
+    @staticmethod
+    def _grep_note(hit, rank: int | None = None) -> str:
+        tokens = ", ".join(sorted(hit.matched_originals)) or "—"
+        prefix = f"grep rank #{rank}" if rank else "grep"
+        flags: list[str] = []
+        if hit.matched_all_originals:
+            flags.append("all original tokens")
+        if hit.matched_identifier:
+            flags.append("identifier match")
+        suffix = f" ({', '.join(flags)})" if flags else ""
+        return f"{prefix}: matched [{tokens}], score={hit.score:.3f}{suffix}"

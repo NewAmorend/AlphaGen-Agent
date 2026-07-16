@@ -9,6 +9,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.markup import escape
 from loguru import logger
 
 from .config import get_settings
@@ -715,6 +716,68 @@ def sync_submitted(
     asyncio.run(_run())
 
 
+@wiki_app.command("compile")
+def wiki_compile(
+    max_hubs: int = typer.Option(40, "--max-hubs", help="Maximum generated hub pages"),
+    min_pages: int = typer.Option(3, "--min-pages", help="Minimum pages sharing a topic tag"),
+    pages_per_hub: int = typer.Option(12, "--pages-per-hub", help="Maximum related pages listed in each hub"),
+    reindex: bool = typer.Option(True, "--reindex/--no-reindex", help="Rebuild wiki index after compiling"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Compile raw wiki pages into hub pages and typed semantic edges."""
+    _setup_logging(verbose)
+    from .wiki.compiler import WikiCompiler
+    from .wiki.store import WikiStore
+
+    settings = get_settings()
+    store = WikiStore(settings.WIKI_DIR)
+    if not store.exists():
+        console.print(f"[yellow]Wiki dir not found at {settings.WIKI_DIR}[/yellow]")
+        raise typer.Exit(1)
+
+    compiler = WikiCompiler(store)
+    stats = compiler.compile(
+        max_hubs=max_hubs,
+        min_pages=min_pages,
+        pages_per_hub=pages_per_hub,
+    )
+
+    table = Table(title="Wiki compiled")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", justify="right")
+    for k, v in stats.__dict__.items():
+        table.add_row(k, str(v))
+    console.print(table)
+
+    if reindex:
+        from .wiki.index import WikiIndex
+        from .wiki.embeddings import make_embedding_provider
+        from .db import Database
+
+        async def _run_index():
+            db = Database(settings.DB_PATH)
+            await db.connect()
+            embedder = make_embedding_provider(settings)
+            index = WikiIndex(
+                store=store,
+                db=db,
+                embedder=embedder,
+                grep_weight=settings.WIKI_GREP_WEIGHT,
+                vector_weight=settings.WIKI_VECTOR_WEIGHT,
+            )
+            try:
+                index_stats = await index.build(incremental=True)
+                console.print(
+                    f"[green]Index refreshed[/green]: {index_stats.pages} pages, "
+                    f"{index_stats.embeddings} embeddings, {index_stats.edges} graph edges"
+                )
+            finally:
+                await embedder.close()
+                await db.close()
+
+        asyncio.run(_run_index())
+
+
 @wiki_app.command("stats")
 def wiki_stats(verbose: bool = typer.Option(False, "--verbose", "-v")):
     """Show wiki page / edge / embedding counts."""
@@ -793,6 +856,7 @@ def wiki_index(
 def wiki_search(
     query: str = typer.Argument(..., help="Query string"),
     top_k: int = typer.Option(5, "--top-k", "-k"),
+    explain: bool = typer.Option(False, "--explain", help="Show channel-level retrieval evidence"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """Debug retrieval: run hybrid search and print hits."""
@@ -834,14 +898,19 @@ def wiki_search(
             table.add_column("Page", style="cyan")
             table.add_column("Type")
             table.add_column("Sources")
+            if explain:
+                table.add_column("Why", max_width=72)
             for i, h in enumerate(hits, 1):
-                table.add_row(
+                row = [
                     str(i),
                     f"{h.score:.3f}",
-                    h.page.title,
+                    escape(h.page.title),
                     h.page.type.value,
-                    ", ".join(h.sources),
-                )
+                    escape(", ".join(h.sources)),
+                ]
+                if explain:
+                    row.append(escape(h.note or "—"))
+                table.add_row(*row)
             console.print(table)
         finally:
             await embedder.close()
@@ -1031,10 +1100,12 @@ def wiki_import_wq(
     delay: Optional[int] = typer.Option(None, "--delay", help="Override WQ_DELAY"),
     limit_per_dataset: Optional[int] = typer.Option(None, "--limit-per-dataset", help="Cap fields per dataset (only matters with --with-fields)"),
     with_fields: bool = typer.Option(False, "--with-fields", help="Also write 7000+ per-field pages (usually unneeded; metadata is already inlined into dataset pages + dictionary)"),
+    tutorials: bool = typer.Option(True, "--tutorials/--no-tutorials", help="Import /learn/documentation tutorial pages"),
+    force_tutorials: bool = typer.Option(False, "--force-tutorials", help="Refetch tutorials even when lastModified is unchanged"),
     reindex: bool = typer.Option(True, "--reindex/--no-reindex", help="Rebuild wiki index after import"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
-    """Import official WQ Brain docs (operators / datasets, optionally per-field pages) into wiki/."""
+    """Import official WQ Brain tutorials and metadata into wiki/."""
     _setup_logging(verbose)
     from .wq.client import WQClient
     from .wiki.importers import WQDocImporter
@@ -1056,6 +1127,8 @@ def wiki_import_wq(
                 delay=delay,
                 limit_per_dataset=limit_per_dataset,
                 include_fields=with_fields,
+                include_tutorials=tutorials,
+                force_tutorials=force_tutorials,
             )
             table = Table(title="WQ docs imported")
             table.add_column("Kind", style="cyan")

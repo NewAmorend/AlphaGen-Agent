@@ -15,6 +15,7 @@ from alphagen_agent.wiki.importers.papers import (
     slugify,
 )
 from alphagen_agent.wiki.importers.wq import WQDocImporter
+from alphagen_agent.wiki.importers.wq_tutorials import WQTutorialImporter, html_to_markdown
 from alphagen_agent.wiki.schema import parse_page
 
 
@@ -217,3 +218,96 @@ async def test_wq_importer_respects_user_edits(tmp_path: Path):
     n = await importer.import_operators()
     assert n == 0
     assert "user body" in path.read_text(encoding="utf-8")
+
+
+def test_wq_tutorial_html_to_markdown_handles_rich_content():
+    html = """
+    <h2>Details</h2>
+    <p>Use <b>rank</b> with <a href="https://example.test">docs</a>.</p>
+    <ul><li>First</li><li><code>ts_mean(close, 20)</code></li></ul>
+    <pre>alpha = rank(close)</pre>
+    <table><tr><th>Name</th><th>Value</th></tr><tr><td>A</td><td>1</td></tr></table>
+    <a href="$tutorialpage/create-alphas/first-alpha">Internal page</a>
+    """
+    markdown = html_to_markdown(html)
+    assert "### Details" in markdown
+    assert "**rank**" in markdown
+    assert "[docs](https://example.test)" in markdown
+    assert "- First" in markdown
+    assert "`ts_mean(close, 20)`" in markdown
+    assert "```\nalpha = rank(close)\n```" in markdown
+    assert "| Name | Value |" in markdown
+    assert (
+        "[Internal page](https://platform.worldquantbrain.com/learn/documentation/"
+        "create-alphas/first-alpha)" in markdown
+    )
+
+
+@pytest.mark.asyncio
+async def test_wq_tutorial_importer_renders_blocks_and_skips_unchanged(tmp_path: Path):
+    tutorial = {
+        "id": "create-alphas",
+        "title": "Create Alphas",
+        "category": "Core",
+        "sequence": 1,
+        "duration": "PT10M",
+        "lastModified": "2026-07-01T00:00:00Z",
+        "pages": [
+            {
+                "id": "first-alpha",
+                "title": "First Alpha",
+                "duration": "PT3M",
+                "lastModified": "2026-07-02T00:00:00Z",
+            }
+        ],
+    }
+    page = {
+        "id": "first-alpha",
+        "title": "First Alpha",
+        "duration": "PT3M",
+        "lastModified": "2026-07-02T00:00:00Z",
+        "content": [
+            {"type": "TEXT", "value": "<p>Start with <b>volume</b>.</p>"},
+            {"type": "HEADING", "value": {"level": "1", "content": "Example"}},
+            {"type": "IMAGE", "value": {"title": "chart.png", "url": "https://img.test/chart.png"}},
+            {"type": "EQUATION", "value": "return = pnl / capital"},
+            {
+                "type": "SIMULATION_EXAMPLE",
+                "value": {
+                    "type": "REGULAR",
+                    "regular": "rank(volume)",
+                    "settings": {"region": "USA", "delay": 1},
+                },
+            },
+            {
+                "type": "TABLE",
+                "value": {"data": [["Field", "Meaning"], ["volume", "Daily volume"]]},
+            },
+        ],
+    }
+    client = AsyncMock()
+    client.get_all_tutorials = AsyncMock(return_value=[tutorial])
+    client.get_tutorial_page = AsyncMock(return_value=page)
+    importer = WQTutorialImporter(tmp_path, client)
+
+    stats = await importer.import_all()
+    assert stats.groups == 1
+    assert stats.pages == 1
+    assert stats.skipped == 0
+
+    path = tmp_path / "worldquant-docs" / "create-alphas" / "first-alpha.md"
+    parsed = parse_page(path)
+    assert parsed.type.value == "concept"
+    assert parsed.extra["source_last_modified"] == "2026-07-02T00:00:00Z"
+    assert "**volume**" in parsed.body
+    assert "rank(volume)" in parsed.body
+    assert "| Field | Meaning |" in parsed.body
+    assert "https://img.test/chart.png" in parsed.body
+
+    index = (path.parent / "index.md").read_text(encoding="utf-8")
+    assert "[[worldquant-docs/create-alphas/first-alpha|First Alpha]]" in index
+
+    second = await importer.import_all()
+    assert second.pages == 0
+    assert second.skipped == 1
+    client.get_tutorial_page.assert_awaited_once_with("first-alpha")

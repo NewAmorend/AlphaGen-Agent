@@ -4,6 +4,7 @@ import asyncio
 import random
 import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from loguru import logger
@@ -359,6 +360,35 @@ class WQClient:
                 break
             offset += page_size
         return out
+
+    async def get_all_tutorials(self, page_size: int = 50) -> list[dict[str, Any]]:
+        """Return every documentation section exposed by the BRAIN Learn API."""
+        out: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            resp = await self._request(
+                "get",
+                "/tutorials",
+                params={"limit": page_size, "offset": offset},
+            )
+            if resp.status_code != 200:
+                logger.warning(f"Failed to fetch tutorials: {resp.status_code} {resp.text[:200]}")
+                break
+            data = resp.json()
+            results = data.get("results", [])
+            out.extend(results)
+            if len(results) < page_size or not data.get("next"):
+                break
+            offset += page_size
+        return out
+
+    async def get_tutorial_page(self, page_id: str) -> dict[str, Any] | None:
+        """Fetch one rich-content documentation page by its stable page id."""
+        resp = await self._request("get", f"/tutorial-pages/{quote(page_id, safe='')}")
+        if resp.status_code == 200:
+            return resp.json()
+        logger.warning(f"Failed to fetch tutorial page {page_id}: {resp.status_code}")
+        return None
 
     async def get_submitted_alphas(self, limit: int = 100) -> list[dict[str, Any]]:
         resp = await self._request(

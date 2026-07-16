@@ -130,6 +130,37 @@ def test_graph_expand_follows_wikilinks(wiki_root: Path):
     assert any(t in {"ts_delta", "ts_decay_linear"} for t in titles)
 
 
+def test_graph_resolves_relative_wiki_path_links():
+    from datetime import date
+
+    from alphagen_agent.wiki.schema import Page, PageType
+
+    hub = Page(
+        path=Path("wiki/hubs/momentum-hub.md"),
+        title="Hub: momentum",
+        type=PageType.CONCEPT,
+        tags=["hub", "momentum"],
+        created=date(2026, 7, 9),
+        body="See [[concepts/momentum]]",
+        wikilinks=["concepts/momentum"],
+    )
+    target = Page(
+        path=Path("wiki/concepts/momentum.md"),
+        title="动量",
+        type=PageType.CONCEPT,
+        tags=["momentum"],
+        created=date(2026, 7, 9),
+        body="momentum",
+        wikilinks=[],
+    )
+
+    graph = GraphChannel([hub, target])
+
+    assert graph._resolve("concepts/momentum") == target
+    assert graph.graph.has_edge("momentum-hub", "momentum")
+    assert graph.graph.get_edge_data("momentum-hub", "momentum", {}).get("kind") == "wikilink"
+
+
 class _DeterministicEmbed(BaseEmbeddingProvider):
     """Map each page title to its own one-hot dim, so cosine has a unique max per title."""
 
@@ -193,4 +224,6 @@ async def test_hybrid_priority_then_rrf_then_graph(wiki_root: Path):
     hits = await hyb.search("动量", top_k=5)
     titles = [h.page.title for h in hits]
     assert titles[0] == "动量"  # priority grep 置顶
-    assert any("priority" in h.sources for h in hits if h.page.title == "动量")
+    momentum_hit = next(h for h in hits if h.page.title == "动量")
+    assert "priority" in momentum_hit.sources
+    assert "matched" in momentum_hit.note
