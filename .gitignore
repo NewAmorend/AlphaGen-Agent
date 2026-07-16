@@ -9,6 +9,7 @@ hopeful_alphas.json
 .venv/
 dist/
 build/
+tui-rs/target/
 *.egg-info/
 wiki/*
 !wiki/.gitkeep

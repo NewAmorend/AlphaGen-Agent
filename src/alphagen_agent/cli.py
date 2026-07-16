@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
+import shutil
+import subprocess
 import sys
 from importlib import resources
 from pathlib import Path
@@ -128,20 +132,88 @@ def _load_user_idea(idea: Optional[str], idea_file: Optional[Path]) -> str | Non
     return "\n\n".join(parts) if parts else None
 
 
+def _dataset_categories(value: Optional[str]) -> list[str] | None:
+    if not value:
+        return None
+    categories = [item.strip() for item in value.split(",") if item.strip()]
+    return categories or None
+
+
+def _rust_tui_command() -> list[str] | None:
+    override = os.environ.get("ALPHAGEN_TUI_BIN")
+    if override:
+        return [override]
+
+    installed = shutil.which("alphagen-tui")
+    if installed:
+        return [installed]
+
+    manifest = _resource_path("tui-rs/Cargo.toml")
+    manifest_path = Path(str(manifest))
+    binary_name = "alphagen-tui.exe" if sys.platform == "win32" else "alphagen-tui"
+    built = manifest_path.parent / "target" / "release" / binary_name
+    if built.is_file():
+        return [str(built)]
+
+    cargo = shutil.which("cargo")
+    if cargo and manifest_path.is_file():
+        return [
+            cargo,
+            "run",
+            "--quiet",
+            "--release",
+            "--manifest-path",
+            str(manifest_path),
+        ]
+    return None
+
+
+def _run_rust_tui(command: list[str], child_env: dict[str, str]) -> int:
+    """Run the TUI and make Ctrl+C cleanup explicit across the process boundary."""
+    process = subprocess.Popen(command, env=child_env)
+    try:
+        returncode = process.wait()
+    except KeyboardInterrupt:
+        if process.poll() is None:
+            try:
+                if os.name == "posix":
+                    process.send_signal(signal.SIGINT)
+                else:
+                    process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        return 130
+
+    # Popen uses negative return codes for POSIX signals. Convert them to the
+    # conventional shell status so Typer never receives an invalid exit code.
+    return 128 - returncode if returncode < 0 else returncode
+
+
 @app.command()
 def tui(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
 ):
-    """Launch the interactive terminal workbench."""
-    _setup_logging(verbose)
-    try:
-        from .tui import run_tui
-    except ModuleNotFoundError as exc:
-        if exc.name == "textual":
-            console.print("[red]Textual is required for the TUI. Install project dependencies first.[/red]")
-            raise typer.Exit(1) from exc
-        raise
-    run_tui()
+    """Launch the Rust/Ratatui terminal workbench."""
+    command = _rust_tui_command()
+    if command is None:
+        console.print(
+            "[red]Rust TUI is not built and Cargo is unavailable.[/red]\n"
+            "Install Rust, then run: [cyan]cargo build --release --manifest-path tui-rs/Cargo.toml[/cyan]"
+        )
+        raise typer.Exit(1)
+
+    child_env = os.environ.copy()
+    child_env["ALPHAGEN_PYTHON"] = sys.executable
+    if verbose:
+        child_env["RUST_BACKTRACE"] = "1"
+    returncode = _run_rust_tui(command, child_env)
+    if returncode:
+        raise typer.Exit(returncode)
 
 
 @app.command()
@@ -150,6 +222,8 @@ def generate(
     count: int = typer.Option(18, "--count", "-n", help="Number of alphas to generate"),
     idea: Optional[str] = typer.Option(None, "--idea", help="Natural-language research idea to guide LLM generation"),
     idea_file: Optional[Path] = typer.Option(None, "--idea-file", help="Read natural-language research idea from a UTF-8 text file"),
+    dataset: Optional[str] = typer.Option(None, "--dataset", help="Comma-separated WQ dataset categories"),
+    region: Optional[str] = typer.Option(None, "--region", help="Override WQ region"),
     no_backtest: bool = typer.Option(False, "--no-backtest", help="Skip auto-backtest"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
@@ -165,6 +239,8 @@ def generate(
                 count=count,
                 auto_backtest=not no_backtest,
                 user_idea=_load_user_idea(idea, idea_file),
+                dataset_categories=_dataset_categories(dataset),
+                market_region=region,
             )
             console.print(f"\n[bold green]Generated {len(records)} alphas[/bold green]")
         except Exception as e:
@@ -182,6 +258,7 @@ def backtest(
     pending: bool = typer.Option(False, "--pending", help="Backtest all pending alphas"),
     all_generated: bool = typer.Option(False, "--all", help="Backtest all generated alphas"),
     max_concurrent: int = typer.Option(5, "--concurrent", "-c", help="Max concurrent simulations"),
+    region: Optional[str] = typer.Option(None, "--region", help="Override WQ region"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Run backtests on generated alphas."""
@@ -213,7 +290,7 @@ def backtest(
                 return
 
             console.print(f"[bold cyan]Backtesting {len(alpha_ids)} alphas...[/bold cyan]")
-            results = await orch.backtest(alpha_ids)
+            results = await orch.backtest(alpha_ids, market_region=region)
             console.print(f"[bold green]Backtest complete: {len(results)} results[/bold green]")
         except Exception as e:
             console.print(f"[bold red]Error: {e}[/bold red]")
@@ -300,6 +377,8 @@ def run(
     interval: int = typer.Option(60, "--interval", help="Seconds between batches"),
     idea: Optional[str] = typer.Option(None, "--idea", help="Natural-language research idea to guide LLM generation"),
     idea_file: Optional[Path] = typer.Option(None, "--idea-file", help="Read natural-language research idea from a UTF-8 text file"),
+    dataset: Optional[str] = typer.Option(None, "--dataset", help="Comma-separated WQ dataset categories"),
+    region: Optional[str] = typer.Option(None, "--region", help="Override WQ region"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Full pipeline: generate → backtest → evaluate → display."""
@@ -313,7 +392,14 @@ def run(
             user_idea = _load_user_idea(idea, idea_file)
             for batch_num in range(1, batches + 1):
                 console.print(f"\n[bold magenta]═══ Batch {batch_num}/{batches} ═══[/bold magenta]")
-                await orch.run(strategy=strat, count=count, auto_backtest=True, user_idea=user_idea)
+                await orch.run(
+                    strategy=strat,
+                    count=count,
+                    auto_backtest=True,
+                    user_idea=user_idea,
+                    dataset_categories=_dataset_categories(dataset),
+                    market_region=region,
+                )
                 if batch_num < batches:
                     console.print(f"\n[dim]Waiting {interval}s before next batch...[/dim]")
                     await asyncio.sleep(interval)
@@ -330,6 +416,8 @@ def run(
 def refine(
     base_id: Optional[int] = typer.Option(None, "--base-id", help="Alpha id to refine; auto-picks best MEDIUM if omitted"),
     count: int = typer.Option(10, "--count", "-n", help="Number of variants to generate"),
+    dataset: Optional[str] = typer.Option(None, "--dataset", help="Comma-separated WQ dataset categories"),
+    region: Optional[str] = typer.Option(None, "--region", help="Override WQ region"),
     no_backtest: bool = typer.Option(False, "--no-backtest"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
@@ -340,7 +428,13 @@ def refine(
         orch = Orchestrator()
         try:
             await orch.initialize()
-            await orch.refine(base_id=base_id, count=count, auto_backtest=not no_backtest)
+            await orch.refine(
+                base_id=base_id,
+                count=count,
+                auto_backtest=not no_backtest,
+                dataset_categories=_dataset_categories(dataset),
+                market_region=region,
+            )
         except Exception as e:
             console.print(f"[bold red]Error: {e}[/bold red]")
             raise typer.Exit(1)
