@@ -227,20 +227,18 @@ impl App {
             return;
         }
 
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.request_quit();
+            return;
+        }
+
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
             self.refresh_dashboard();
             return;
         }
 
         match key.code {
-            KeyCode::Char('q') => {
-                if self.running.is_some() {
-                    self.quit_after_job = true;
-                    self.cancel_running();
-                } else {
-                    self.should_quit = true;
-                }
-            }
+            KeyCode::Char('q') => self.request_quit(),
             KeyCode::Char('c') if self.running.is_some() => self.cancel_running(),
             KeyCode::Char('g') => self.start_job(JobKind::Generate),
             KeyCode::Char('r') => self.start_job(JobKind::Run),
@@ -258,6 +256,15 @@ impl App {
             KeyCode::PageUp => self.log_scroll = self.log_scroll.saturating_add(8),
             KeyCode::PageDown => self.log_scroll = self.log_scroll.saturating_sub(8),
             _ => {}
+        }
+    }
+
+    fn request_quit(&mut self) {
+        if self.running.is_some() {
+            self.quit_after_job = true;
+            self.cancel_running();
+        } else {
+            self.should_quit = true;
         }
     }
 
@@ -683,9 +690,9 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let help = if app.editing {
         " Enter/Esc finish editing"
     } else if app.running.is_some() {
-        " g generate  r run  f refine  b backtest  c cancel  PgUp/PgDn logs  q quit"
+        " g generate  r run  f refine  b backtest  c cancel  PgUp/PgDn logs  q/Ctrl+C quit"
     } else {
-        " Tab fields  ↑/↓ select  Enter/i edit  g generate  r run  f refine  b backtest  Ctrl+R refresh  q quit"
+        " Tab fields  ↑/↓ select  Enter/i edit  g generate  r run  f refine  b backtest  Ctrl+R refresh  q/Ctrl+C quit"
     };
     frame.render_widget(
         Paragraph::new(help).style(Style::default().fg(Color::DarkGray)),
@@ -948,5 +955,14 @@ mod tests {
                 "quality minus leverage",
             ]
         );
+    }
+
+    #[test]
+    fn ctrl_c_requests_a_clean_exit() {
+        let mut app = App::new();
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+        assert!(app.should_quit);
     }
 }

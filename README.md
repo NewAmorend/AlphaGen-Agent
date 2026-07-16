@@ -140,7 +140,7 @@ cargo build --release --manifest-path tui-rs/Cargo.toml
 alphagen-agent tui
 ```
 
-左侧可设置 strategy/dataset/market/count/batches/idea，右侧显示任务日志、统计和最近 alpha。快捷键：`Tab` 切换字段、`↑/↓` 选择、`Enter` 编辑、`g` 仅生成、`r` 全流程、`f` refine、`b` 回测 pending、`c` 取消任务、`Ctrl+R` 刷新、`q` 退出。
+左侧可设置 strategy/dataset/market/count/batches/idea，右侧显示任务日志、统计和最近 alpha。快捷键：`Tab` 切换字段、`↑/↓` 选择、`Enter` 编辑、`g` 仅生成、`r` 全流程、`f` refine、`b` 回测 pending、`c` 取消任务、`Ctrl+R` 刷新、`q` 或 `Ctrl+C` 安全退出。
 
 ### 减少 alpha 重复性
 

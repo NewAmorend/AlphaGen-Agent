@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -167,6 +168,32 @@ def _rust_tui_command() -> list[str] | None:
     return None
 
 
+def _run_rust_tui(command: list[str], child_env: dict[str, str]) -> int:
+    """Run the TUI and make Ctrl+C cleanup explicit across the process boundary."""
+    process = subprocess.Popen(command, env=child_env)
+    try:
+        returncode = process.wait()
+    except KeyboardInterrupt:
+        if process.poll() is None:
+            try:
+                if os.name == "posix":
+                    process.send_signal(signal.SIGINT)
+                else:
+                    process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        return 130
+
+    # Popen uses negative return codes for POSIX signals. Convert them to the
+    # conventional shell status so Typer never receives an invalid exit code.
+    return 128 - returncode if returncode < 0 else returncode
+
+
 @app.command()
 def tui(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
@@ -184,9 +211,9 @@ def tui(
     child_env["ALPHAGEN_PYTHON"] = sys.executable
     if verbose:
         child_env["RUST_BACKTRACE"] = "1"
-    result = subprocess.run(command, env=child_env, check=False)
-    if result.returncode:
-        raise typer.Exit(result.returncode)
+    returncode = _run_rust_tui(command, child_env)
+    if returncode:
+        raise typer.Exit(returncode)
 
 
 @app.command()
