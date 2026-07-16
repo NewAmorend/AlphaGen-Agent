@@ -131,7 +131,16 @@ alphagen-agent diversity
 
 ### TUI 工作台
 
-`alphagen-agent tui` 提供一个键盘优先的终端工作台：左侧设置 strategy/count/batches/idea，右侧查看任务日志和最近 alpha。快捷键：`g` 仅生成、`r` 全流程、`f` refine、`b` 回测 pending、`Ctrl+R` 刷新、`q` 退出。
+TUI 使用 Rust + Ratatui 实现，Python 继续负责生成、回测和研究逻辑。长任务运行在独立后台进程中，不会阻塞键盘输入和界面刷新。
+
+首次使用先安装 Rust 并构建一次：
+
+```bash
+cargo build --release --manifest-path tui-rs/Cargo.toml
+alphagen-agent tui
+```
+
+左侧可设置 strategy/dataset/market/count/batches/idea，右侧显示任务日志、统计和最近 alpha。快捷键：`Tab` 切换字段、`↑/↓` 选择、`Enter` 编辑、`g` 仅生成、`r` 全流程、`f` refine、`b` 回测 pending、`c` 取消任务、`Ctrl+R` 刷新、`q` 退出。
 
 ### 减少 alpha 重复性
 
